@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ShopWave AI Support — Customer Chat</title>
+  <meta name="description" content="AI-powered customer support for ShopWave e-commerce. Get instant help with refunds, returns, and order issues." />
+  <link rel="stylesheet" href="/static/css/main.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛒</text></svg>" />
+</head>
+<body>
+
+<div class="app-layout">
+
+  <!-- ═══════════════════════════════════════ HEADER ═══ -->
+  <header class="header">
+    <div class="header-brand">
+      <div class="header-logo">🛒</div>
+      <div>
+        <div class="header-title">ShopWave Support</div>
+        <div class="header-subtitle">AI Refund Agent · Powered by GPT-4o</div>
+      </div>
+    </div>
+
+    <nav class="header-nav">
+      <div style="display:flex;align-items:center;gap:6px;font-size:0.78rem;color:var(--text-muted)">
+        <div class="status-dot" id="connection-dot"></div>
+        <span id="connection-label">Connecting…</span>
+      </div>
+      <button class="nav-btn" onclick="toggleAutoSpeak()" id="auto-speak-toggle" title="Toggle voice responses">
+        🔇 Voice
+      </button>
+      <button class="nav-btn" onclick="newSession()" title="Start a new chat session">
+        ➕ New Chat
+      </button>
+      <a href="/admin" class="nav-btn" title="Open admin dashboard">
+        📊 Admin
+      </a>
+    </nav>
+  </header>
+
+  <!-- ═══════════════════════════════════════ SIDEBAR ══ -->
+  <aside class="sidebar">
+
+    <!-- Customer Info -->
+    <div class="sidebar-section" id="customer-info">
+      <div class="sidebar-label">Customer</div>
+      <div class="text-sm text-muted" style="padding:4px 0">No customer identified yet</div>
+    </div>
+
+    <!-- Reasoning Logs Mini Panel -->
+    <div class="sidebar-section" style="flex:1;overflow:hidden;display:flex;flex-direction:column">
+      <div class="sidebar-label">Agent Reasoning</div>
+      <div id="mini-log" style="
+        flex:1;overflow-y:auto;
+        display:flex;flex-direction:column;gap:4px;
+        padding-top:4px;
+      "></div>
+    </div>
+
+    <!-- Quick actions -->
+    <div class="sidebar-section">
+      <div class="sidebar-label">Quick Prompts</div>
+      <button class="quick-btn" onclick="sendSuggestion('I want a refund for my order ORD-1001')">
+        <span class="icon">↩️</span> Request refund
+      </button>
+      <button class="quick-btn" onclick="sendSuggestion('What is your refund policy?')">
+        <span class="icon">📋</span> Refund policy
+      </button>
+      <button class="quick-btn" onclick="sendSuggestion('Check order ORD-9001 status')">
+        <span class="icon">📦</span> Check order
+      </button>
+      <button class="quick-btn" onclick="sendSuggestion('I am customer CUST-006, I need help')">
+        <span class="icon">👤</span> Identify myself
+      </button>
+    </div>
+
+    <!-- Session ID -->
+    <div class="sidebar-section" style="padding:10px 16px">
+      <div class="sidebar-label">Session</div>
+      <code class="session-id-tag" id="session-id-display">—</code>
+    </div>
+
+  </aside>
+
+  <!-- ═══════════════════════════════════════ CHAT ═══════ -->
+  <main class="chat-area">
+
+    <!-- Messages -->
+    <div class="messages-container" id="messages">
+
+      <!-- Welcome Screen -->
+      <div class="welcome-screen" id="welcome-screen">
+        <div class="welcome-icon">🤖</div>
+        <h1 class="welcome-title">Hi, I'm ShopWave AI</h1>
+        <p class="welcome-subtitle">
+          I can help you with refunds, returns, and order issues. Just tell me your order ID or customer ID to get started.
+        </p>
+        <div class="suggestion-chips">
+          <div class="chip" onclick="sendSuggestion('I want to return my order ORD-1001. I am Alice Johnson (CUST-001)')">
+            🔄 Return order ORD-1001
+          </div>
+          <div class="chip" onclick="sendSuggestion('My order ORD-2001 arrived damaged. Customer Bob Martinez, CUST-002.')">
+            📦 Damaged item refund
+          </div>
+          <div class="chip" onclick="sendSuggestion('I am Emma Davis, CUST-005. I need a refund for ORD-5001.')">
+            💳 Refund request
+          </div>
+          <div class="chip" onclick="sendSuggestion('What is your return policy for Gold members?')">
+            📋 Policy question
+          </div>
+          <div class="chip" onclick="sendSuggestion('I received the wrong item in order ORD-9001. My name is Isabella Taylor, CUST-009.')">
+            ❌ Wrong item received
+          </div>
+        </div>
+      </div>
+
+      <!-- Typing Indicator -->
+      <div class="typing-indicator" id="typing-indicator">
+        <div class="msg-avatar bot">🤖</div>
+        <div class="typing-dots">
+          <span></span><span></span><span></span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Input Area -->
+    <div class="input-area">
+      <!-- Voice status bar -->
+      <div class="voice-status" id="voice-status">
+        <div class="voice-wave">
+          <span></span><span></span><span></span><span></span><span></span>
+        </div>
+        <span>Recording… click mic to stop</span>
+      </div>
+
+      <div class="input-container">
+        <textarea
+          id="message-input"
+          placeholder="Describe your issue or ask about your order…"
+          rows="1"
+          aria-label="Message input"
+        ></textarea>
+
+        <button
+          class="icon-btn"
+          id="mic-btn"
+          title="Voice input"
+          onclick="toggleRecording()"
+          aria-label="Toggle voice recording"
+        >🎤</button>
+
+        <button
+          class="send-btn"
+          id="send-btn"
+          title="Send message (Enter)"
+          onclick="sendMessage(document.getElementById('message-input').value)"
+          aria-label="Send message"
+        >➤</button>
+      </div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;padding:0 2px">
+        <span style="font-size:0.68rem;color:var(--text-muted)">
+          Press <kbd style="background:var(--bg-card);border:1px solid var(--border);border-radius:3px;padding:1px 4px;font-size:0.65rem">Enter</kbd> to send · <kbd style="background:var(--bg-card);border:1px solid var(--border);border-radius:3px;padding:1px 4px;font-size:0.65rem">Shift+Enter</kbd> for new line
+        </span>
+        <span style="font-size:0.68rem;color:var(--text-muted)">
+          Powered by GPT-4o + LangGraph
+        </span>
+      </div>
+    </div>
+
+  </main>
+
+</div>
+
+<!-- Mini log entry style -->
+<style>
+.mini-log-entry {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  padding: 5px 6px;
+  border-radius: 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  animation: message-in 0.2s ease-out;
+  line-height: 1.4;
+}
+.mini-log-icon { font-size: 0.75rem; flex-shrink: 0; }
+.mini-log-msg strong { color: var(--accent); font-weight: 600; }
+kbd {
+  font-family: 'JetBrains Mono', monospace;
+}
+</style>
+
+<script src="/static/js/chat.js"></script>
+</body>
+</html>

@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ShopWave Admin — Realtime Agent Dashboard</title>
+  <meta name="description" content="Admin dashboard for the ShopWave AI Customer Support Agent. Monitor real-time reasoning logs, session decisions, and customer profiles." />
+  <link rel="stylesheet" href="/static/css/admin.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>" />
+</head>
+<body>
+
+  <!-- ══════════════════════════════════ HEADER ══════════ -->
+  <header class="admin-header">
+    <div class="admin-brand">
+      <div class="admin-logo">📊</div>
+      <div>
+        <div class="admin-title">Agent Dashboard</div>
+        <div class="admin-subtitle">ShopWave · Realtime Reasoning Monitor</div>
+      </div>
+    </div>
+
+    <div class="header-stats">
+      <div class="stat-pill">
+        <span class="label">Sessions</span>
+        <span class="value purple" id="stat-total">0</span>
+      </div>
+      <div class="stat-pill">
+        <span class="label">Approved</span>
+        <span class="value green" id="stat-approved">0</span>
+      </div>
+      <div class="stat-pill">
+        <span class="label">Denied</span>
+        <span class="value red" id="stat-denied">0</span>
+      </div>
+      <div class="stat-pill">
+        <span class="label">Escalated</span>
+        <span class="value yellow" id="stat-escalated">0</span>
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:12px">
+      <div class="ws-indicator">
+        <div class="ws-dot" id="ws-dot"></div>
+        <span id="ws-label">Connecting…</span>
+      </div>
+      <a href="/" style="
+        padding:6px 14px;border-radius:6px;
+        border:1px solid var(--border);background:transparent;
+        color:var(--text-secondary);font-size:0.8rem;
+        text-decoration:none;transition:var(--transition);
+        display:flex;align-items:center;gap:6px;
+      " onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='transparent'">
+        💬 Customer Chat
+      </a>
+    </div>
+  </header>
+
+  <!-- ══════════════════════════════════ BODY ════════════ -->
+  <div class="admin-body">
+
+    <!-- ──────── LEFT: Sessions Panel ──────── -->
+    <section class="panel" id="sessions-panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span class="icon">💬</span> Sessions
+          <span class="panel-count" id="session-count">0</span>
+        </div>
+        <button class="icon-action-btn" onclick="loadInitialSessions()" title="Refresh sessions">🔄</button>
+      </div>
+
+      <div style="padding:10px 12px;border-bottom:1px solid var(--border)">
+        <input
+          type="text"
+          class="search-input"
+          id="session-search"
+          placeholder="Search sessions…"
+          oninput="filterSessions(this.value)"
+        />
+      </div>
+
+      <div class="panel-body scroll-section" id="session-list">
+        <div class="log-empty">
+          <div class="icon">📭</div>
+          <div>No sessions yet.<br>Start a chat to see sessions here.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ──────── MIDDLE: Reasoning Log Panel ──────── -->
+    <section class="panel log-panel" id="log-panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span class="icon">🧠</span> Reasoning Log
+          <span class="panel-count" id="log-count">0</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="live-toggle">
+            <div class="live-badge">LIVE</div>
+          </div>
+          <button class="clear-btn" onclick="clearLogs()">Clear</button>
+        </div>
+      </div>
+
+      <!-- Filter Controls -->
+      <div class="log-controls">
+        <span style="font-size:0.72rem;color:var(--text-muted)">Filter:</span>
+        <button class="log-filter-btn active" data-filter="all" onclick="setLogFilter('all')">All</button>
+        <button class="log-filter-btn" data-filter="info" onclick="setLogFilter('info')">ℹ️ Info</button>
+        <button class="log-filter-btn" data-filter="success" onclick="setLogFilter('success')">✅ Success</button>
+        <button class="log-filter-btn" data-filter="error" onclick="setLogFilter('error')">❌ Error</button>
+        <button class="log-filter-btn" data-filter="warning" onclick="setLogFilter('warning')">⚠️ Warning</button>
+        <label style="margin-left:auto;display:flex;align-items:center;gap:4px;font-size:0.72rem;color:var(--text-muted);cursor:pointer">
+          <input type="checkbox" checked id="auto-scroll-chk" onchange="autoScroll=this.checked" style="accent-color:var(--accent)" />
+          Auto-scroll
+        </label>
+      </div>
+
+      <div class="panel-body scroll-section" id="log-panel-body">
+        <div class="log-stream" id="log-stream">
+          <div class="log-empty">
+            <div class="icon">🧠</div>
+            <div>Select a session from the left panel<br>to view reasoning logs here.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ──────── RIGHT: Customer Detail Panel ──────── -->
+    <section class="panel detail-panel" id="detail-panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span class="icon">👤</span> Customer Profile
+        </div>
+        <button class="icon-action-btn" onclick="loadCustomerList()" title="Browse all customers">📋</button>
+      </div>
+
+      <div class="panel-body scroll-section" id="detail-content">
+        <div class="detail-empty">
+          <div class="icon">👤</div>
+          <div>Select a session to view<br>customer details here.</div>
+        </div>
+      </div>
+    </section>
+
+  </div><!-- end admin-body -->
+
+  <!-- Customer List Modal -->
+  <div id="customer-modal" style="
+    display:none;position:fixed;inset:0;z-index:1000;
+    background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);
+    align-items:center;justify-content:center;
+  ">
+    <div style="
+      background:var(--bg-card);border:1px solid var(--border);
+      border-radius:16px;padding:24px;max-width:600px;width:90%;
+      max-height:80vh;display:flex;flex-direction:column;gap:16px;
+      box-shadow:0 20px 60px rgba(0,0,0,0.5);
+    ">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <h2 style="font-size:1rem;font-weight:600">All Customers (CRM)</h2>
+        <button onclick="closeCustomerModal()" style="
+          background:none;border:none;color:var(--text-muted);
+          cursor:pointer;font-size:1.2rem;
+        ">✕</button>
+      </div>
+      <input type="text" class="search-input" placeholder="Search by name or email…" oninput="filterCustomerList(this.value)" id="cust-search" />
+      <div id="customer-list-items" style="overflow-y:auto;display:flex;flex-direction:column;gap:6px;"></div>
+    </div>
+  </div>
+
+  <script src="/static/js/admin.js"></script>
+  <script>
+    // ─── Customer List Modal ────────────────────────────────
+    let allCustomers = [];
+
+    async function loadCustomerList() {
+      const modal = document.getElementById('customer-modal');
+      modal.style.display = 'flex';
+      if (allCustomers.length === 0) {
+        try {
+          const res = await fetch(`${API_BASE}/api/admin/customers`);
+          allCustomers = await res.json();
+        } catch (e) {
+          allCustomers = [];
+        }
+      }
+      renderCustomerList(allCustomers);
+    }
+
+    function closeCustomerModal() {
+      document.getElementById('customer-modal').style.display = 'none';
+    }
+
+    function filterCustomerList(q) {
+      const filtered = allCustomers.filter(c =>
+        c.name.toLowerCase().includes(q.toLowerCase()) ||
+        c.email.toLowerCase().includes(q.toLowerCase()) ||
+        c.customer_id.toLowerCase().includes(q.toLowerCase())
+      );
+      renderCustomerList(filtered);
+    }
+
+    function renderCustomerList(customers) {
+      const el = document.getElementById('customer-list-items');
+      const tierIcon = { bronze: '🥉', silver: '🥈', gold: '🥇', platinum: '💎' };
+      el.innerHTML = customers.map(c => `
+        <div style="
+          padding:10px 14px;background:var(--bg-panel);
+          border:1px solid var(--border);border-radius:8px;
+          cursor:pointer;transition:var(--transition);
+          display:flex;align-items:center;justify-content:space-between;
+        "
+        onclick="selectCustomerFromModal('${c.customer_id}')"
+        onmouseover="this.style.background='var(--bg-hover)'"
+        onmouseout="this.style.background='var(--bg-panel)'">
+          <div>
+            <div style="font-weight:600;font-size:0.85rem">${c.name}</div>
+            <div style="font-size:0.72rem;color:var(--text-muted)">${c.email}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="tier-badge tier-${c.tier}">${tierIcon[c.tier] || '⭐'} ${c.tier}</span>
+            <span style="font-family:monospace;font-size:0.7rem;color:var(--accent)">${c.customer_id}</span>
+          </div>
+        </div>
+      `).join('') || '<div style="color:var(--text-muted);text-align:center;padding:20px">No customers found</div>';
+    }
+
+    function selectCustomerFromModal(customerId) {
+      closeCustomerModal();
+      loadCustomerDetail(customerId, null);
+    }
+
+    // Session search filter
+    function filterSessions(q) {
+      const items = document.querySelectorAll('.session-item');
+      items.forEach(item => {
+        const text = item.textContent.toLowerCase();
+        item.style.display = text.includes(q.toLowerCase()) ? '' : 'none';
+      });
+    }
+  </script>
+</body>
+</html>
