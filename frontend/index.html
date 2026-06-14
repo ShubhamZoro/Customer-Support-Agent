@@ -10,6 +10,73 @@
 </head>
 <body>
 
+<!-- ═══════════════════════════════════════ LOGIN OVERLAY ═══ -->
+<div class="login-overlay" id="login-overlay">
+  <div class="login-card">
+    <div class="login-logo">🛒</div>
+    <h1 class="login-title">ShopWave Support</h1>
+    <p class="login-subtitle">Sign in to access the AI refund assistant</p>
+
+    <form class="login-form" id="login-form" onsubmit="handleLogin(event)">
+      <div class="form-group">
+        <label class="form-label" for="login-email">Email Address</label>
+        <input
+          class="form-input"
+          id="login-email"
+          type="email"
+          placeholder="you@example.com"
+          autocomplete="email"
+          required
+        />
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="login-password">Password</label>
+        <input
+          class="form-input"
+          id="login-password"
+          type="password"
+          placeholder="••••••••"
+          autocomplete="current-password"
+          required
+        />
+      </div>
+
+      <div class="login-error" id="login-error">
+        <span>⚠️</span>
+        <span id="login-error-msg">Invalid email or password.</span>
+      </div>
+
+      <button class="login-btn" id="login-btn" type="submit">Sign In</button>
+    </form>
+
+    <!-- Demo accounts quick-fill -->
+    <div class="demo-accounts">
+      <div class="demo-accounts-title">🧪 Demo Accounts (password: password123)</div>
+      <button class="demo-account-btn" onclick="fillDemo('alice.johnson@demo.com')">
+        <div class="demo-account-avatar">AJ</div>
+        alice.johnson@demo.com · Electronics, Books
+      </button>
+      <button class="demo-account-btn" onclick="fillDemo('bob.martinez@demo.com')">
+        <div class="demo-account-avatar">BM</div>
+        bob.martinez@demo.com · Home, Clothing
+      </button>
+      <button class="demo-account-btn" onclick="fillDemo('carol.white@demo.com')">
+        <div class="demo-account-avatar">CW</div>
+        carol.white@demo.com · Electronics + already refunded
+      </button>
+      <button class="demo-account-btn" onclick="fillDemo('david.chen@demo.com')">
+        <div class="demo-account-avatar">DC</div>
+        david.chen@demo.com · Gift Card order (non-refundable)
+      </button>
+      <button class="demo-account-btn" onclick="fillDemo('emma.davis@demo.com')">
+        <div class="demo-account-avatar">ED</div>
+        emma.davis@demo.com · Subscription (window expired)
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════ MAIN APP ══════ -->
 <div class="app-layout">
 
   <!-- ═══════════════════════════════════════ HEADER ═══ -->
@@ -27,6 +94,13 @@
         <div class="status-dot" id="connection-dot"></div>
         <span id="connection-label">Connecting…</span>
       </div>
+
+      <!-- User pill (shown after login) -->
+      <div class="user-pill" id="user-pill" style="display:none">
+        <div class="user-pill-avatar" id="user-pill-avatar">?</div>
+        <span class="user-pill-name" id="user-pill-name">—</span>
+      </div>
+
       <button class="nav-btn" onclick="toggleAutoSpeak()" id="auto-speak-toggle" title="Toggle voice responses">
         🔇 Voice
       </button>
@@ -36,6 +110,9 @@
       <a href="/admin" class="nav-btn" title="Open admin dashboard">
         📊 Admin
       </a>
+      <button class="logout-btn" id="logout-btn" onclick="handleLogout()" style="display:none" title="Sign out">
+        Sign Out
+      </button>
     </nav>
   </header>
 
@@ -44,8 +121,8 @@
 
     <!-- Customer Info -->
     <div class="sidebar-section" id="customer-info">
-      <div class="sidebar-label">Customer</div>
-      <div class="text-sm text-muted" style="padding:4px 0">No customer identified yet</div>
+      <div class="sidebar-label">Logged In As</div>
+      <div class="text-sm text-muted" style="padding:4px 0" id="sidebar-user-info">Not signed in</div>
     </div>
 
     <!-- Reasoning Logs Mini Panel -->
@@ -61,17 +138,17 @@
     <!-- Quick actions -->
     <div class="sidebar-section">
       <div class="sidebar-label">Quick Prompts</div>
-      <button class="quick-btn" onclick="sendSuggestion('I want a refund for my order ORD-1001')">
+      <button class="quick-btn" onclick="sendSuggestion('I want to initiate a refund for my order ORD-1001')">
         <span class="icon">↩️</span> Request refund
       </button>
       <button class="quick-btn" onclick="sendSuggestion('What is your refund policy?')">
         <span class="icon">📋</span> Refund policy
       </button>
-      <button class="quick-btn" onclick="sendSuggestion('Check order ORD-9001 status')">
-        <span class="icon">📦</span> Check order
+      <button class="quick-btn" onclick="sendSuggestion('Show me all my orders')">
+        <span class="icon">📦</span> My orders
       </button>
-      <button class="quick-btn" onclick="sendSuggestion('I am customer CUST-006, I need help')">
-        <span class="icon">👤</span> Identify myself
+      <button class="quick-btn" onclick="sendSuggestion('What is the return window for Electronics?')">
+        <span class="icon">❓</span> Policy question
       </button>
     </div>
 
@@ -94,22 +171,23 @@
         <div class="welcome-icon">🤖</div>
         <h1 class="welcome-title">Hi, I'm ShopWave AI</h1>
         <p class="welcome-subtitle">
-          I can help you with refunds, returns, and order issues. Just tell me your order ID or customer ID to get started.
+          I can help you with refunds, returns, and policy questions.
+          Provide your Order ID to get started — I already know who you are!
         </p>
         <div class="suggestion-chips">
-          <div class="chip" onclick="sendSuggestion('I want to return my order ORD-1001. I am Alice Johnson (CUST-001)')">
-            🔄 Return order ORD-1001
+          <div class="chip" onclick="sendSuggestion('I want to initiate a refund for my order ORD-1001')">
+            🔄 Refund order ORD-1001
           </div>
-          <div class="chip" onclick="sendSuggestion('My order ORD-2001 arrived damaged. Customer Bob Martinez, CUST-002.')">
-            📦 Damaged item refund
+          <div class="chip" onclick="sendSuggestion('Show me all my orders')">
+            📦 View my orders
           </div>
-          <div class="chip" onclick="sendSuggestion('I am Emma Davis, CUST-005. I need a refund for ORD-5001.')">
-            💳 Refund request
+          <div class="chip" onclick="sendSuggestion('My item arrived damaged, order ORD-2001')">
+            💥 Damaged item
           </div>
-          <div class="chip" onclick="sendSuggestion('What is your return policy for Gold members?')">
-            📋 Policy question
+          <div class="chip" onclick="sendSuggestion('What is the return policy for Clothing?')">
+            📋 Clothing policy
           </div>
-          <div class="chip" onclick="sendSuggestion('I received the wrong item in order ORD-9001. My name is Isabella Taylor, CUST-009.')">
+          <div class="chip" onclick="sendSuggestion('I received the wrong item in order ORD-3001')">
             ❌ Wrong item received
           </div>
         </div>
@@ -138,7 +216,7 @@
       <div class="input-container">
         <textarea
           id="message-input"
-          placeholder="Describe your issue or ask about your order…"
+          placeholder="Describe your issue or type an Order ID to get started…"
           rows="1"
           aria-label="Message input"
         ></textarea>
@@ -162,7 +240,7 @@
 
       <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;padding:0 2px">
         <span style="font-size:0.68rem;color:var(--text-muted)">
-          Press <kbd style="background:var(--bg-card);border:1px solid var(--border);border-radius:3px;padding:1px 4px;font-size:0.65rem">Enter</kbd> to send · <kbd style="background:var(--bg-card);border:1px solid var(--border);border-radius:3px;padding:1px 4px;font-size:0.65rem">Shift+Enter</kbd> for new line
+          Press <kbd>Enter</kbd> to send · <kbd>Shift+Enter</kbd> for new line
         </span>
         <span style="font-size:0.68rem;color:var(--text-muted)">
           Powered by GPT-4o + LangGraph
@@ -173,28 +251,6 @@
   </main>
 
 </div>
-
-<!-- Mini log entry style -->
-<style>
-.mini-log-entry {
-  display: flex;
-  gap: 6px;
-  align-items: flex-start;
-  padding: 5px 6px;
-  border-radius: 6px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  font-size: 0.72rem;
-  color: var(--text-secondary);
-  animation: message-in 0.2s ease-out;
-  line-height: 1.4;
-}
-.mini-log-icon { font-size: 0.75rem; flex-shrink: 0; }
-.mini-log-msg strong { color: var(--accent); font-weight: 600; }
-kbd {
-  font-family: 'JetBrains Mono', monospace;
-}
-</style>
 
 <script src="/static/js/chat.js"></script>
 </body>

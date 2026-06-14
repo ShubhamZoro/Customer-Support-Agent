@@ -2,7 +2,7 @@
 Admin API — Real-time reasoning logs, session management, WebSocket dashboard feed
 """
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from data.crm_database import list_all_customers, CRM_DATABASE
+from data.crm_database import get_user, get_orders_for_user
 from data.refund_policy import REFUND_POLICY_TEXT
 
 router = APIRouter()
@@ -22,42 +22,27 @@ async def admin_websocket(websocket: WebSocket):
     # Send current session snapshot on connect
     sessions_snapshot = [
         {
-            "session_id": s["session_id"],
-            "created_at": s["created_at"],
-            "message_count": len(s["messages"]),
+            "session_id":      s["session_id"],
+            "user_id":         s.get("user_id"),
+            "user_email":      s.get("user_email"),
+            "created_at":      s["created_at"],
+            "message_count":   len(s["messages"]),
             "refund_decision": s.get("refund_decision"),
-            "customer_id": s.get("customer_id"),
         }
         for s in SESSIONS.values()
     ]
     await websocket.send_json({
-        "type": "init",
+        "type":     "init",
         "sessions": sessions_snapshot,
     })
 
     try:
         while True:
-            # Keep connection alive — admin WS is primarily push-based
             await websocket.receive_text()
     except WebSocketDisconnect:
         unregister_admin_ws(websocket)
     except Exception:
         unregister_admin_ws(websocket)
-
-
-@router.get("/api/admin/customers")
-async def get_all_customers():
-    """Return all CRM customers for admin view."""
-    return list_all_customers()
-
-
-@router.get("/api/admin/customers/{customer_id}")
-async def get_customer_detail(customer_id: str):
-    """Return full customer profile."""
-    customer = CRM_DATABASE.get(customer_id.upper())
-    if not customer:
-        return {"error": "Customer not found"}
-    return customer
 
 
 @router.get("/api/admin/policy")
@@ -68,16 +53,17 @@ async def get_policy():
 
 @router.get("/api/admin/sessions")
 async def get_admin_sessions():
-    """Return all active sessions with full details."""
+    """Return all active chat sessions with full details."""
     from api.chat import SESSIONS
     return [
         {
-            "session_id": s["session_id"],
-            "created_at": s["created_at"],
-            "message_count": len(s["messages"]),
-            "refund_decision": s.get("refund_decision"),
-            "customer_id": s.get("customer_id"),
-            "reasoning_log_count": len(s.get("reasoning_log", [])),
+            "session_id":            s["session_id"],
+            "user_id":               s.get("user_id"),
+            "user_email":            s.get("user_email"),
+            "created_at":            s["created_at"],
+            "message_count":         len(s["messages"]),
+            "refund_decision":       s.get("refund_decision"),
+            "reasoning_log_count":   len(s.get("reasoning_log", [])),
         }
         for s in SESSIONS.values()
     ]
@@ -91,9 +77,10 @@ async def get_session_logs(session_id: str):
     if not session:
         return {"error": "Session not found"}
     return {
-        "session_id": session_id,
-        "reasoning_log": session.get("reasoning_log", []),
-        "messages": session.get("messages", []),
+        "session_id":      session_id,
+        "user_id":         session.get("user_id"),
+        "user_email":      session.get("user_email"),
+        "reasoning_log":   session.get("reasoning_log", []),
+        "messages":        session.get("messages", []),
         "refund_decision": session.get("refund_decision"),
-        "customer_id": session.get("customer_id"),
     }

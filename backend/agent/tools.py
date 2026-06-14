@@ -1,436 +1,67 @@
 """
-LangGraph Agent Tools — All tool functions the agent can call
+agent/tools.py — All tool functions available to the refund support agent.
+
+Tools
+-----
+1. get_refund_policy      — Return full policy text or a named section
+2. get_my_orders          — List all orders for the authenticated user
+3. lookup_order           — Fetch order details; enforces user ownership
+4. get_current_date       — Return today's date (for window math transparency)
+5. check_refund_eligibility — Full policy gate: window + duplicate + payment method
+6. initiate_refund        — Write DB update + send confirmation email
 """
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 from langchain_core.tools import tool
 
 from data.crm_database import (
-    get_customer, get_order,
-    search_customer_by_email, search_customer_by_name
+    get_order,
+    get_order_for_user,
+    get_orders_for_user,
+    get_return_window,
+    is_already_refunded,
+    is_payment_non_refundable,
+    initiate_refund_in_db,
+    get_user,
+    RETURN_WINDOWS,
 )
-from data.refund_policy import REFUND_POLICY_RULES, REFUND_POLICY_TEXT
-
-
-# ─── In-memory store for approved/denied refunds (demo) ─────────────────────
-PROCESSED_REFUNDS: list[dict] = []
+from data.refund_policy import REFUND_POLICY_TEXT, REFUND_POLICY_RULES
+from services.email_service import send_refund_initiated_email
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# TOOL 1: Lookup Customer
-# ─────────────────────────────────────────────────────────────────────────────
-@tool
-def lookup_customer(query: str) -> str:
-    """
-    Look up a customer from the CRM database.
-    Accepts a customer ID (e.g. 'CUST-001'), email address, or partial name.
-    Returns full customer profile including tier, account age, and order IDs.
-    """
-    query = query.strip()
-    customer = None
-
-    # Try by customer ID
-    if query.upper().startswith("CUST-"):
-        customer = get_customer(query)
-    # Try by email
-    elif "@" in query:
-        customer = search_customer_by_email(query)
-    # Try by name
-    else:
-        results = search_customer_by_name(query)
-        if len(results) == 1:
-            customer = results[0]
-        elif len(results) > 1:
-            names = [f"{c['customer_id']} - {c['name']}" for c in results]
-            return json.dumps({
-                "status": "multiple_found",
-                "message": "Multiple customers found. Please specify:",
-                "customers": names
-            })
-
-    if not customer:
-        return json.dumps({
-            "status": "not_found",
-            "message": f"No customer found for query: '{query}'"
-        })
-
-    # Return a clean profile summary
-    order_ids = list(customer["orders"].keys())
-    return json.dumps({
-        "status": "found",
-        "customer_id": customer["customer_id"],
-        "name": customer["name"],
-        "email": customer["email"],
-        "tier": customer["tier"],
-        "account_age_days": customer["account_age_days"],
-        "loyalty_points": customer["loyalty_points"],
-        "total_refunds_this_year": customer["total_refunds_this_year"],
-        "total_refund_amount_this_year": customer["total_refund_amount_this_year"],
-        "order_ids": order_ids,
-        "refund_history_count": len(customer["refund_history"]),
-    })
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# TOOL 2: Lookup Order
-# ─────────────────────────────────────────────────────────────────────────────
-@tool
-def lookup_order(order_id: str) -> str:
-    """
-    Look up details for a specific order by order ID.
-    Returns order date, items, total amount, status, and shipping cost.
-    """
-    order_id = order_id.strip().upper()
-    order, customer_id = get_order(order_id)
-
-    if not order:
-        return json.dumps({
-            "status": "not_found",
-            "message": f"Order '{order_id}' not found in the system."
-        })
-
-    # Calculate days since delivery
-    try:
-        order_date = datetime.strptime(order["date"], "%Y-%m-%d")
-        days_since_order = (datetime.now() - order_date).days
-    except Exception:
-        days_since_order = None
-
-    result = {
-        "status": "found",
-        "order_id": order["order_id"],
-        "customer_id": customer_id,
-        "order_date": order["date"],
-        "days_since_order": days_since_order,
-        "items": order["items"],
-        "total": order["total"],
-        "order_status": order["status"],
-        "payment_method": order["payment_method"],
-        "shipping_cost": order["shipping_cost"],
-        "is_digital": order.get("is_digital", False),
-        "has_personalized_items": any(
-            item.get("is_personalized", False) for item in order["items"]
-        ),
-    }
-    return json.dumps(result)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# TOOL 3: Check Refund Eligibility
-# ─────────────────────────────────────────────────────────────────────────────
-@tool
-def check_refund_eligibility(customer_id: str, order_id: str, reason: str) -> str:
-    """
-    Check whether a refund request is eligible under the refund policy.
-    Provide the customer_id, order_id, and the reason for the refund request.
-    Returns a detailed eligibility report with policy rule citations.
-    """
-    policy = REFUND_POLICY_RULES
-    issues = []
-    eligibility_flags = []
-
-    customer = get_customer(customer_id.strip().upper())
-    if not customer:
-        return json.dumps({"eligible": False, "reason": "Customer not found."})
-
-    order, _ = get_order(order_id.strip().upper())
-    if not order:
-        return json.dumps({"eligible": False, "reason": "Order not found."})
-
-    tier = customer["tier"].lower()
-    reason_lower = reason.lower()
-
-    # ── 1. Return Window Check ──────────────────────────────────────────────
-    window_days = policy["return_windows"].get(tier, 30)
-    try:
-        order_date = datetime.strptime(order["date"], "%Y-%m-%d")
-        days_elapsed = (datetime.now() - order_date).days
-    except Exception:
-        days_elapsed = 0
-
-    always_eligible_reasons = ["defective", "damaged", "wrong item", "wrong_item",
-                               "damaged_in_shipping", "not received"]
-    is_always_eligible = any(r in reason_lower for r in always_eligible_reasons)
-
-    if days_elapsed > window_days and not is_always_eligible:
-        issues.append(
-            f"POLICY §1: Return window expired. {tier.capitalize()} tier has {window_days} days; "
-            f"{days_elapsed} days have passed since order date."
-        )
-    else:
-        eligibility_flags.append(f"✓ Within return window ({days_elapsed}/{window_days} days)")
-
-    # ── 2. Non-Refundable Items Check ───────────────────────────────────────
-    if order.get("is_digital", False):
-        issues.append("POLICY §3.1: Order contains digital goods — non-refundable under all circumstances.")
-
-    if order.get("has_personalized_items") or any(
-        item.get("is_personalized", False) for item in order.get("items", [])
-    ):
-        if not is_always_eligible:
-            issues.append("POLICY §3.2: Order contains personalized items — non-refundable unless defective.")
-        else:
-            eligibility_flags.append("✓ Personalized item eligible due to defect claim")
-
-    # ── 3. Annual Refund Limit ──────────────────────────────────────────────
-    refunds_this_year = customer["total_refunds_this_year"]
-    max_per_year = policy["max_refunds_per_year"]
-    if refunds_this_year >= max_per_year:
-        issues.append(
-            f"POLICY §4.1: Annual refund limit reached. Customer has {refunds_this_year}/{max_per_year} refunds this year."
-        )
-    else:
-        eligibility_flags.append(f"✓ Within annual limit ({refunds_this_year}/{max_per_year} refunds this year)")
-
-    # ── 4. Amount Limit Check ───────────────────────────────────────────────
-    order_amount = order["total"]
-    max_amount = policy["max_single_refund_amount"]
-    escalation_threshold = policy["escalation_threshold_amount"]
-
-    needs_escalation = False
-    if order_amount > max_amount:
-        issues.append(
-            f"POLICY §4.2: Order total ${order_amount} exceeds max refund amount ${max_amount}. "
-            f"Maximum refundable: ${max_amount}."
-        )
-    elif order_amount > escalation_threshold:
-        needs_escalation = True
-        eligibility_flags.append(
-            f"⚠ Amount ${order_amount} exceeds ${escalation_threshold} — requires supervisor approval (POLICY §9.1)"
-        )
-    else:
-        eligibility_flags.append(f"✓ Amount ${order_amount} within refund limits")
-
-    # ── 5. Fraud Signal Check ───────────────────────────────────────────────
-    fraud_window = policy["fraud_window_days"]
-    fraud_threshold = policy["fraud_refund_count_threshold"]
-
-    recent_refunds = [
-        r for r in customer["refund_history"]
-        if (datetime.now() - datetime.strptime(r["date"], "%Y-%m-%d")).days <= fraud_window
-    ]
-    if len(recent_refunds) >= fraud_threshold:
-        needs_escalation = True
-        issues.append(
-            f"POLICY §6.1: Fraud signal detected — {len(recent_refunds)} refunds in the past {fraud_window} days "
-            f"(threshold: {fraud_threshold}). Requires manual review."
-        )
-
-    # ── 6. New Account + High Value Check ───────────────────────────────────
-    new_acct_days = policy["new_account_days"]
-    high_value = policy["new_account_high_value_threshold"]
-    if customer["account_age_days"] < new_acct_days and order_amount > high_value:
-        needs_escalation = True
-        issues.append(
-            f"POLICY §6.3: New account ({customer['account_age_days']} days old) requesting "
-            f"refund over ${high_value} (${order_amount}) — requires additional verification."
-        )
-
-    # ── 7. Shipping Refund Eligibility ──────────────────────────────────────
-    shipping_cost = order["shipping_cost"]
-    shipping_refundable = (
-        tier == "platinum"
-        or is_always_eligible
-        and shipping_cost > 0
-    )
-
-    # ── Final Determination ─────────────────────────────────────────────────
-    is_eligible = len(issues) == 0
-    refund_amount = min(order_amount, max_amount)
-    if shipping_refundable and shipping_cost > 0:
-        refund_amount += shipping_cost
-
-    return json.dumps({
-        "eligible": is_eligible,
-        "needs_escalation": needs_escalation,
-        "customer_tier": tier,
-        "days_since_order": days_elapsed,
-        "return_window_days": window_days,
-        "order_amount": order_amount,
-        "recommended_refund_amount": round(refund_amount, 2) if is_eligible else 0.0,
-        "shipping_refundable": shipping_refundable,
-        "eligibility_flags": eligibility_flags,
-        "issues": issues,
-        "policy_reference": "ShopWave Refund Policy v3.2",
-    })
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# TOOL 4: Get Refund History
-# ─────────────────────────────────────────────────────────────────────────────
-@tool
-def get_refund_history(customer_id: str) -> str:
-    """
-    Retrieve the complete refund history for a customer.
-    Useful for detecting refund patterns, fraud signals, or checking annual limits.
-    """
-    customer = get_customer(customer_id.strip().upper())
-    if not customer:
-        return json.dumps({"status": "not_found", "message": "Customer not found."})
-
-    history = customer["refund_history"]
-    now = datetime.now()
-
-    # Calculate refunds in last 90 days
-    recent_90 = [
-        r for r in history
-        if (now - datetime.strptime(r["date"], "%Y-%m-%d")).days <= 90
-    ]
-
-    return json.dumps({
-        "status": "found",
-        "customer_id": customer_id,
-        "total_refunds_all_time": len(history),
-        "total_refunds_this_year": customer["total_refunds_this_year"],
-        "total_refund_amount_this_year": customer["total_refund_amount_this_year"],
-        "refunds_last_90_days": len(recent_90),
-        "fraud_flag": len(recent_90) >= REFUND_POLICY_RULES["fraud_refund_count_threshold"],
-        "refund_history": history,
-    })
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# TOOL 5: Approve Refund
-# ─────────────────────────────────────────────────────────────────────────────
-@tool
-def approve_refund(order_id: str, amount: float, reason: str) -> str:
-    """
-    Approve and process a refund for an order.
-    Only call this after verifying eligibility with check_refund_eligibility.
-    Provide the order_id, refund amount, and a brief reason for approval.
-    """
-    order, customer_id = get_order(order_id.strip().upper())
-    if not order:
-        return json.dumps({"status": "error", "message": f"Order {order_id} not found."})
-
-    customer = get_customer(customer_id)
-    payment_method = order["payment_method"]
-
-    timeline = {
-        "credit_card": "5-10 business days",
-        "debit_card": "3-5 business days",
-        "paypal": "1-3 business days",
-        "gift_card": "Credited back to gift card immediately",
-    }.get(payment_method, "3-7 business days")
-
-    refund_record = {
-        "refund_id": f"REF-{datetime.now().strftime('%Y%m%d%H%M%S')}",
-        "order_id": order_id,
-        "customer_id": customer_id,
-        "customer_name": customer["name"] if customer else "Unknown",
-        "amount": round(amount, 2),
-        "reason": reason,
-        "status": "approved",
-        "processed_at": datetime.now().isoformat(),
-        "timeline": timeline,
-        "payment_method": payment_method,
-    }
-    PROCESSED_REFUNDS.append(refund_record)
-
-    return json.dumps({
-        "status": "approved",
-        "refund_id": refund_record["refund_id"],
-        "order_id": order_id,
-        "amount": round(amount, 2),
-        "payment_method": payment_method,
-        "processing_timeline": timeline,
-        "message": f"Refund of ${amount:.2f} approved successfully for order {order_id}.",
-    })
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# TOOL 6: Deny Refund
-# ─────────────────────────────────────────────────────────────────────────────
-@tool
-def deny_refund(order_id: str, reason: str, policy_section: str) -> str:
-    """
-    Formally deny a refund request with a specific policy-based reason.
-    Provide order_id, a clear reason for denial, and the relevant policy section.
-    """
-    order, customer_id = get_order(order_id.strip().upper())
-    if not order:
-        return json.dumps({"status": "error", "message": f"Order {order_id} not found."})
-
-    customer = get_customer(customer_id) if customer_id else None
-
-    denial_record = {
-        "refund_id": f"DENIAL-{datetime.now().strftime('%Y%m%d%H%M%S')}",
-        "order_id": order_id,
-        "customer_id": customer_id,
-        "customer_name": customer["name"] if customer else "Unknown",
-        "reason": reason,
-        "policy_section": policy_section,
-        "status": "denied",
-        "processed_at": datetime.now().isoformat(),
-    }
-    PROCESSED_REFUNDS.append(denial_record)
-
-    return json.dumps({
-        "status": "denied",
-        "order_id": order_id,
-        "reason": reason,
-        "policy_section": policy_section,
-        "message": f"Refund for order {order_id} has been denied.",
-    })
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# TOOL 7: Escalate to Human
-# ─────────────────────────────────────────────────────────────────────────────
-@tool
-def escalate_to_human(customer_id: str, order_id: str, reason: str) -> str:
-    """
-    Escalate this refund case to a human supervisor for manual review.
-    Use when: refund > $400, fraud signals detected, new account high-value order,
-    customer disputes decision, or other complex circumstances.
-    """
-    escalation_record = {
-        "escalation_id": f"ESC-{datetime.now().strftime('%Y%m%d%H%M%S')}",
-        "customer_id": customer_id,
-        "order_id": order_id,
-        "reason": reason,
-        "status": "escalated",
-        "escalated_at": datetime.now().isoformat(),
-        "priority": "high" if "fraud" in reason.lower() else "normal",
-    }
-    PROCESSED_REFUNDS.append(escalation_record)
-
-    return json.dumps({
-        "status": "escalated",
-        "escalation_id": escalation_record["escalation_id"],
-        "customer_id": customer_id,
-        "order_id": order_id,
-        "reason": reason,
-        "expected_response": "24-48 business hours",
-        "message": (
-            f"Case escalated to supervisor review. "
-            f"Reference: {escalation_record['escalation_id']}. "
-            f"A supervisor will contact the customer within 24-48 hours."
-        ),
-    })
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# TOOL 8: Get Refund Policy
+# TOOL 1: Get Refund Policy
 # ─────────────────────────────────────────────────────────────────────────────
 @tool
 def get_refund_policy(section: str = "full") -> str:
     """
-    Retrieve the full refund policy document or a specific section.
-    Use 'full' for the complete policy, or specify a topic like 'return_windows',
-    'non_refundable', 'limits', 'fraud', 'escalation'.
+    Retrieve the ShopWave refund policy document or a specific section.
+    Use section='full' for the complete policy.
+    Use one of these section names for a focused excerpt:
+      'return_windows'  — return windows by product category
+      'non_refundable'  — non-refundable items and payment methods
+      'duplicate'       — duplicate refund restriction rules
+      'ownership'       — user ownership and security rules
+      'process'         — step-by-step refund process
+      'timeline'        — processing timelines by payment method
+      'fraud'           — fraud prevention rules
     """
     if section == "full":
         return REFUND_POLICY_TEXT
 
     section_map = {
-        "return_windows": "SECTION 1",
-        "non_refundable": "SECTION 3",
-        "limits": "SECTION 4",
-        "fraud": "SECTION 6",
-        "escalation": "SECTION 9",
+        "return_windows": "1. RETURN WINDOWS BY PRODUCT CATEGORY",
+        "non_refundable": "3. NON-REFUNDABLE ITEMS",
+        "duplicate":      "4. DUPLICATE REFUND RESTRICTION",
+        "ownership":      "5. USER OWNERSHIP & SECURITY",
+        "process":        "6. REFUND PROCESS",
+        "timeline":       "7. PROCESSING TIMELINE BY PAYMENT METHOD",
+        "fraud":          "10. FRAUD PREVENTION",
     }
-    key = section_map.get(section.lower(), "SECTION 1")
+    key = section_map.get(section.lower(), "")
+    if not key:
+        return REFUND_POLICY_TEXT
+
     lines = REFUND_POLICY_TEXT.split("\n")
     in_section = False
     result = []
@@ -439,21 +70,416 @@ def get_refund_policy(section: str = "full") -> str:
             in_section = True
         if in_section:
             result.append(line)
-            if len(result) > 20:
-                break
+            # Stop at the next numbered section heading
+            if len(result) > 1 and line.strip() and line[0].isdigit() and line != lines[lines.index(line)]:
+                if len(result) > 5:
+                    break
     return "\n".join(result) if result else REFUND_POLICY_TEXT
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TOOL 2: Get My Orders
+# ─────────────────────────────────────────────────────────────────────────────
+@tool
+def get_my_orders(user_id: str) -> str:
+    """
+    Retrieve all orders belonging to the authenticated user.
+    Pass the user_id of the currently logged-in customer.
+    Returns a list of orders with their IDs, categories, prices, and current status.
+    """
+    user_id = user_id.strip().upper()
+    orders = get_orders_for_user(user_id)
+
+    if not orders:
+        return json.dumps({
+            "status": "no_orders",
+            "user_id": user_id,
+            "message": "No orders found for this account.",
+            "orders": [],
+        })
+
+    summary = []
+    for o in orders:
+        days_elapsed = (
+            datetime.now() -
+            datetime.strptime(o["order_date"], "%Y-%m-%d")
+        ).days
+        window = get_return_window(o["product_category"])
+        summary.append({
+            "order_id":         o["order_id"],
+            "product_id":       o["product_id"],
+            "product_category": o["product_category"],
+            "product_price":    o["product_price"],
+            "order_quantity":   o["order_quantity"],
+            "order_date":       o["order_date"],
+            "return_status":    o["return_status"],
+            "payment_method":   o["payment_method"],
+            "shipping_method":  o["shipping_method"],
+            "discount_applied": o["discount_applied"],
+            "days_since_order": days_elapsed,
+            "return_window_days": window,
+            "within_window":    days_elapsed <= window,
+        })
+
+    return json.dumps({
+        "status": "found",
+        "user_id": user_id,
+        "total_orders": len(summary),
+        "orders": summary,
+    })
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TOOL 3: Lookup Order
+# ─────────────────────────────────────────────────────────────────────────────
+@tool
+def lookup_order(order_id: str, user_id: str) -> str:
+    """
+    Look up details for a specific order by order ID.
+    IMPORTANT: Always pass the user_id of the currently logged-in customer.
+    This tool enforces ownership — it will reject requests where the order
+    does not belong to the authenticated user.
+
+    Returns full order details including category, price, status, and
+    how many days remain in the return window.
+    """
+    order_id = order_id.strip().upper()
+    user_id  = user_id.strip().upper()
+
+    # First check if the order exists at all
+    order_any = get_order(order_id)
+    if not order_any:
+        return json.dumps({
+            "status": "not_found",
+            "message": f"Order '{order_id}' was not found in the system.",
+        })
+
+    # Ownership check
+    order = get_order_for_user(order_id, user_id)
+    if not order:
+        return json.dumps({
+            "status": "forbidden",
+            "message": (
+                f"Order '{order_id}' does not belong to your account. "
+                "You can only view and request refunds for your own orders."
+            ),
+        })
+
+    # Compute timing
+    try:
+        order_dt = datetime.strptime(order["order_date"], "%Y-%m-%d")
+        days_elapsed = (datetime.now() - order_dt).days
+    except Exception:
+        days_elapsed = 0
+
+    window = get_return_window(order["product_category"])
+    days_remaining = max(0, window - days_elapsed)
+
+    return json.dumps({
+        "status":           "found",
+        "order_id":         order["order_id"],
+        "product_id":       order["product_id"],
+        "user_id":          order["user_id"],
+        "product_category": order["product_category"],
+        "product_price":    order["product_price"],
+        "order_quantity":   order["order_quantity"],
+        "order_date":       order["order_date"],
+        "return_date":      order["return_date"],
+        "return_status":    order["return_status"],
+        "return_reason":    order["return_reason"],
+        "payment_method":   order["payment_method"],
+        "shipping_method":  order["shipping_method"],
+        "discount_applied": order["discount_applied"],
+        "days_since_order": days_elapsed,
+        "return_window_days": window,
+        "days_remaining_in_window": days_remaining,
+        "within_window":    days_elapsed <= window,
+    })
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TOOL 4: Get Current Date
+# ─────────────────────────────────────────────────────────────────────────────
+@tool
+def get_current_date() -> str:
+    """
+    Return the current server date and time.
+    Use this together with an order's order_date to show the customer
+    exactly how many days have elapsed and whether the return window is open.
+    """
+    now = datetime.now()
+    return json.dumps({
+        "current_datetime": now.strftime("%Y-%m-%d %H:%M:%S"),
+        "current_date":     now.strftime("%Y-%m-%d"),
+        "current_time":     now.strftime("%H:%M:%S"),
+        "day_of_week":      now.strftime("%A"),
+        "return_windows_reference": RETURN_WINDOWS,
+    })
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TOOL 5: Check Refund Eligibility
+# ─────────────────────────────────────────────────────────────────────────────
+@tool
+def check_refund_eligibility(order_id: str, user_id: str, reason: str) -> str:
+    """
+    Perform the full policy eligibility check for a refund request.
+    Always call this before initiating a refund.
+
+    Checks performed (in order):
+      1. Ownership — order must belong to user_id
+      2. Duplicate — order must not already be refunded
+      3. Payment method — Gift Card orders are non-refundable
+      4. Return window — based on product category
+      5. Always-eligible reasons (defective, wrong item, etc.)
+
+    Returns a structured eligibility report with the decision and reasons.
+    """
+    order_id = order_id.strip().upper()
+    user_id  = user_id.strip().upper()
+    reason_lower = reason.lower()
+
+    # ── 0. Existence check ──────────────────────────────────────────────────
+    order_any = get_order(order_id)
+    if not order_any:
+        return json.dumps({
+            "eligible": False,
+            "reason":   f"Order '{order_id}' was not found in the system.",
+            "policy_section": "N/A",
+        })
+
+    # ── 1. Ownership check ──────────────────────────────────────────────────
+    order = get_order_for_user(order_id, user_id)
+    if not order:
+        return json.dumps({
+            "eligible": False,
+            "reason": (
+                f"Order '{order_id}' does not belong to your account. "
+                "You may only request refunds for your own orders (Policy §5)."
+            ),
+            "policy_section": "§5 — User Ownership & Security",
+        })
+
+    # ── 2. Duplicate refund check ───────────────────────────────────────────
+    if is_already_refunded(order):
+        return json.dumps({
+            "eligible": False,
+            "reason": (
+                f"Order '{order_id}' has already been refunded "
+                f"(current status: '{order['return_status']}'). "
+                "Each order can only be refunded once (Policy §4)."
+            ),
+            "policy_section": "§4 — Duplicate Refund Restriction",
+            "current_status": order["return_status"],
+        })
+
+    # ── 3. Payment method check ─────────────────────────────────────────────
+    if is_payment_non_refundable(order):
+        return json.dumps({
+            "eligible": False,
+            "reason": (
+                f"This order was paid with '{order['payment_method']}', "
+                "which is non-refundable (Policy §3.1). "
+                "Gift Card payments cannot be refunded. "
+                "You may be eligible for store credit — please contact support."
+            ),
+            "policy_section": "§3.1 — Gift Card Non-Refundable",
+            "payment_method": order["payment_method"],
+        })
+
+    # ── 4. Always-eligible reasons (bypass window check) ───────────────────
+    always_eligible_keywords = [
+        "defective", "malfunction", "broken", "damaged",
+        "wrong item", "wrong product", "not received", "never arrived",
+    ]
+    is_always_eligible = any(kw in reason_lower for kw in always_eligible_keywords)
+
+    # ── 5. Return window check ──────────────────────────────────────────────
+    try:
+        order_dt = datetime.strptime(order["order_date"], "%Y-%m-%d")
+        days_elapsed = (datetime.now() - order_dt).days
+    except Exception:
+        days_elapsed = 0
+
+    window = get_return_window(order["product_category"])
+    within_window = days_elapsed <= window
+
+    if not within_window and not is_always_eligible:
+        deadline = (
+            datetime.strptime(order["order_date"], "%Y-%m-%d").replace(
+                day=datetime.strptime(order["order_date"], "%Y-%m-%d").day
+            )
+        )
+        from datetime import timedelta
+        deadline_str = (datetime.strptime(order["order_date"], "%Y-%m-%d") +
+                        timedelta(days=window)).strftime("%Y-%m-%d")
+
+        return json.dumps({
+            "eligible": False,
+            "reason": (
+                f"The return window for {order['product_category']} items is {window} days. "
+                f"Your order was placed on {order['order_date']}, which was {days_elapsed} days ago "
+                f"(deadline was {deadline_str}). "
+                "The return window has expired (Policy §1). "
+                "Note: defective, damaged, or wrong items are always eligible regardless of window."
+            ),
+            "policy_section": f"§1 — Return Windows by Category ({order['product_category']}: {window} days)",
+            "days_elapsed":   days_elapsed,
+            "window_days":    window,
+            "deadline":       deadline_str,
+        })
+
+    # ── Eligible ─────────────────────────────────────────────────────────────
+    refund_amount = round(
+        (order["product_price"] * order["order_quantity"]) - order["discount_applied"],
+        2,
+    )
+    refund_amount = max(0.0, refund_amount)
+
+    timeline = {
+        "Credit Card": "5–10 business days",
+        "Debit Card":  "3–5 business days",
+        "PayPal":      "1–3 business days",
+    }.get(order["payment_method"], "3–7 business days")
+
+    eligibility_notes = []
+    if is_always_eligible:
+        eligibility_notes.append(
+            f"✓ Reason '{reason}' qualifies as always-eligible (no window limit applies)"
+        )
+    else:
+        eligibility_notes.append(
+            f"✓ Within return window: {days_elapsed}/{window} days elapsed since order date"
+        )
+
+    return json.dumps({
+        "eligible":           True,
+        "order_id":           order["order_id"],
+        "product_category":   order["product_category"],
+        "order_date":         order["order_date"],
+        "days_elapsed":       days_elapsed,
+        "return_window_days": window,
+        "within_window":      within_window,
+        "always_eligible":    is_always_eligible,
+        "refund_amount":      refund_amount,
+        "payment_method":     order["payment_method"],
+        "processing_timeline": timeline,
+        "eligibility_notes":  eligibility_notes,
+        "policy_reference":   "ShopWave Refund Policy v5.0",
+    })
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TOOL 6: Initiate Refund
+# ─────────────────────────────────────────────────────────────────────────────
+@tool
+def initiate_refund(order_id: str, user_id: str, reason: str) -> str:
+    """
+    Initiate an approved refund for an order.
+    ONLY call this tool after check_refund_eligibility returns eligible=True.
+
+    This tool will:
+      1. Verify ownership one final time
+      2. Update the order's return_status to 'Refund Initiated' in the database
+      3. Send a confirmation email to the customer
+      4. Return a confirmation with the refund amount and processing timeline
+
+    Arguments:
+      order_id — the order to refund
+      user_id  — the logged-in user's ID (must match the order's user_id)
+      reason   — the customer's stated reason for the return
+    """
+    order_id = order_id.strip().upper()
+    user_id  = user_id.strip().upper()
+
+    # Final ownership + existence check
+    order = get_order_for_user(order_id, user_id)
+    if not order:
+        order_any = get_order(order_id)
+        if not order_any:
+            return json.dumps({
+                "status":  "error",
+                "message": f"Order '{order_id}' not found.",
+            })
+        return json.dumps({
+            "status":  "forbidden",
+            "message": f"Order '{order_id}' does not belong to your account.",
+        })
+
+    # Final duplicate guard
+    if is_already_refunded(order):
+        return json.dumps({
+            "status":  "duplicate",
+            "message": (
+                f"Order '{order_id}' already has status '{order['return_status']}'. "
+                "Cannot initiate a duplicate refund."
+            ),
+        })
+
+    # Write to DB
+    success = initiate_refund_in_db(order_id, reason)
+    if not success:
+        return json.dumps({
+            "status":  "error",
+            "message": f"Failed to update database for order '{order_id}'.",
+        })
+
+    # Compute refund amount
+    refund_amount = round(
+        (order["product_price"] * order["order_quantity"]) - order["discount_applied"],
+        2,
+    )
+    refund_amount = max(0.0, refund_amount)
+
+    # Send confirmation email
+    user = get_user(user_id)
+    user_email = user["email"] if user else None
+    email_sent = False
+    if user_email:
+        email_sent = send_refund_initiated_email(
+            to_email=user_email,
+            order_id=order_id,
+            product_category=order["product_category"],
+            product_price=order["product_price"],
+            order_quantity=order["order_quantity"],
+            discount_applied=order["discount_applied"],
+            payment_method=order["payment_method"],
+            reason=reason,
+        )
+
+    timeline = {
+        "Credit Card": "5–10 business days",
+        "Debit Card":  "3–5 business days",
+        "PayPal":      "1–3 business days",
+    }.get(order["payment_method"], "3–7 business days")
+
+    return json.dumps({
+        "status":              "refund_initiated",
+        "order_id":            order_id,
+        "user_id":             user_id,
+        "product_category":    order["product_category"],
+        "refund_amount":       refund_amount,
+        "payment_method":      order["payment_method"],
+        "processing_timeline": timeline,
+        "reason":              reason,
+        "email_sent":          email_sent,
+        "email_address":       user_email,
+        "message": (
+            f"✅ Refund of ${refund_amount:.2f} has been initiated for order {order_id}. "
+            f"You will receive a confirmation at {user_email}. "
+            f"Please allow {timeline} for the refund to appear."
+        ),
+    })
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Tool registry
 # ─────────────────────────────────────────────────────────────────────────────
 ALL_TOOLS = [
-    lookup_customer,
-    lookup_order,
-    check_refund_eligibility,
-    get_refund_history,
-    approve_refund,
-    deny_refund,
-    escalate_to_human,
     get_refund_policy,
+    get_my_orders,
+    lookup_order,
+    get_current_date,
+    check_refund_eligibility,
+    initiate_refund,
 ]

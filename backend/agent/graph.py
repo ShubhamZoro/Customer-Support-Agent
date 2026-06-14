@@ -12,28 +12,28 @@ from langgraph.prebuilt import ToolNode
 
 from agent.state import AgentState
 from agent.tools import ALL_TOOLS
-from agent.prompts import SYSTEM_PROMPT
+from agent.prompts import build_system_prompt
 from config import settings
 
 MAX_ITERATIONS = 15
 
 # ─── Lazy singletons — initialized on first graph build ─────────────────────
-_llm = None
+_llm            = None
 _llm_with_tools = None
-_tool_node = None
+_tool_node      = None
 
 
 def _get_llm():
     global _llm, _llm_with_tools, _tool_node
     if _llm is None:
-        _llm = ChatOpenAI(
+        _llm            = ChatOpenAI(
             model=settings.OPENAI_MODEL,
             api_key=settings.OPENAI_API_KEY,
             temperature=0,
             streaming=True,
         )
         _llm_with_tools = _llm.bind_tools(ALL_TOOLS)
-        _tool_node = ToolNode(ALL_TOOLS)
+        _tool_node      = ToolNode(ALL_TOOLS)
     return _llm, _llm_with_tools, _tool_node
 
 
@@ -41,19 +41,31 @@ def _get_llm():
 # NODE: agent — LLM decides what to do
 # ─────────────────────────────────────────────────────────────────────────────
 def agent_node(state: AgentState) -> dict:
+    _, llm_with_tools, _ = _get_llm()
+
     messages = list(state["messages"])
 
-    # Inject system message if not already present
-    if not messages or not isinstance(messages[0], SystemMessage):
-        messages = [SystemMessage(content=SYSTEM_PROMPT)] + messages
+    # Build system prompt with user context
+    user_id    = state.get("user_id") or "UNKNOWN"
+    user_email = state.get("user_email") or "UNKNOWN"
+    system_msg = SystemMessage(content=build_system_prompt(user_id, user_email))
+
+    # Inject/replace system message at position 0
+    if messages and isinstance(messages[0], SystemMessage):
+        messages[0] = system_msg
+    else:
+        messages = [system_msg] + messages
 
     # Safety: cap iterations
     iteration = state.get("iteration_count", 0)
     if iteration >= MAX_ITERATIONS:
         return {
-            "messages": [AIMessage(content="I've reached the maximum reasoning steps. Please contact support directly.")],
+            "messages": [AIMessage(content=(
+                "I've reached the maximum reasoning steps. "
+                "Please contact support directly for further assistance."
+            ))],
             "iteration_count": iteration + 1,
-            "reasoning_log": [_log_entry("agent", "Max iterations reached — terminating loop.", "warning")],
+            "reasoning_log":   [_log_entry("agent", "Max iterations reached — terminating.", "warning")],
         }
 
     response = llm_with_tools.invoke(messages)
@@ -78,17 +90,15 @@ def agent_node(state: AgentState) -> dict:
     # Extract refund decision from content if present
     decision = state.get("refund_decision")
     content_lower = (response.content or "").lower()
-    if "approved" in content_lower and "refund" in content_lower:
-        decision = "approved"
-    elif "denied" in content_lower or "unfortunately" in content_lower:
+    if "refund_initiated" in content_lower or "refund of $" in content_lower or "has been initiated" in content_lower:
+        decision = "refund_initiated"
+    elif "denied" in content_lower or "not eligible" in content_lower or "cannot be refunded" in content_lower:
         decision = "denied"
-    elif "escalat" in content_lower:
-        decision = "escalated"
 
     return {
-        "messages": [response],
+        "messages":        [response],
         "iteration_count": iteration + 1,
-        "reasoning_log": log_entries,
+        "reasoning_log":   log_entries,
         "refund_decision": decision,
     }
 
@@ -98,6 +108,7 @@ def agent_node(state: AgentState) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 def tools_node(state: AgentState) -> dict:
     """Execute tool calls and log results."""
+    _, _, tool_node = _get_llm()
     result = tool_node.invoke(state)
     log_entries = []
 
@@ -106,11 +117,14 @@ def tools_node(state: AgentState) -> dict:
             try:
                 content_data = json.loads(msg.content)
                 status = content_data.get("status", "unknown")
-                level = "success" if status in ("found", "approved", "escalated") else \
-                        "error" if status in ("not_found", "denied") else "info"
+                level  = (
+                    "success" if status in ("found", "refund_initiated") else
+                    "error"   if status in ("not_found", "denied", "forbidden", "duplicate") else
+                    "info"
+                )
                 log_entries.append(_log_entry(
                     node="tool_executor",
-                    message=f"Tool **{msg.name}** returned: `{status}`",
+                    message=f"Tool **{msg.name}** → `{status}`",
                     level=level,
                     detail=content_data,
                 ))
@@ -131,13 +145,12 @@ def tools_node(state: AgentState) -> dict:
 # EDGE: router — should_continue
 # ─────────────────────────────────────────────────────────────────────────────
 def should_continue(state: AgentState) -> Literal["tools", "end"]:
-    messages = state["messages"]
+    messages    = state["messages"]
     last_message = messages[-1] if messages else None
 
     if last_message is None:
         return "end"
 
-    # If the last AI message has tool calls, go to tools node
     if isinstance(last_message, AIMessage) and last_message.tool_calls:
         return "tools"
 
@@ -160,7 +173,7 @@ def build_graph() -> StateGraph:
         should_continue,
         {
             "tools": "tools",
-            "end": END,
+            "end":   END,
         }
     )
     graph.add_edge("tools", "agent")
@@ -185,8 +198,8 @@ def get_graph():
 def _log_entry(node: str, message: str, level: str = "info", detail: dict = None) -> dict:
     return {
         "timestamp": datetime.now().isoformat(),
-        "node": node,
-        "message": message,
-        "level": level,
-        "detail": detail or {},
+        "node":      node,
+        "message":   message,
+        "level":     level,
+        "detail":    detail or {},
     }

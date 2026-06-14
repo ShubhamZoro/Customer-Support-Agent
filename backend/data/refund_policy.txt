@@ -1,0 +1,103 @@
+=============================================================
+  SHOPWAVE E-COMMERCE — OFFICIAL REFUND & RETURN POLICY
+  Version 5.0 | Effective Date: January 1, 2025
+=============================================================
+
+1. RETURN WINDOWS BY PRODUCT CATEGORY
+---------------------------------------
+Return eligibility is determined by the product category of the order,
+calculated from the order_date stored in the system (NOT the delivery date).
+
+1.1 Electronics           : 30 days from order date.
+1.2 Clothing & Apparel    : 15 days from order date.
+1.3 Home & Living         : 30 days from order date.
+1.4 Books                 : 14 days from order date.
+1.5 Toys & Games          : 21 days from order date.
+1.6 Subscriptions         :  7 days from order date (non-refundable after first use).
+1.7 Services              :  7 days from order date (non-refundable once service begins).
+
+NOTE: There are no premium tiers or plan-based extensions. Every customer
+is subject to the same category-based window regardless of account status.
+
+2. CONDITIONS ALWAYS ELIGIBLE FOR RETURN (NO WINDOW LIMIT)
+-----------------------------------------------------------
+The following reasons bypass the return window entirely:
+
+2.1 Item is defective or malfunctioning — always eligible.
+2.2 Item was damaged during shipping — eligible if reported within 72 hours of delivery.
+2.3 Wrong item received (not what was ordered) — always eligible.
+2.4 Item not received despite delivery confirmation — eligible after investigation.
+
+3. NON-REFUNDABLE ITEMS (ABSOLUTE RESTRICTIONS)
+-------------------------------------------------
+The following items cannot be refunded under any circumstances:
+
+3.1 Gift Card payments — orders paid entirely with a Gift Card are non-refundable.
+    (Gift Card purchases may receive store credit at agent discretion.)
+3.2 Subscription or Service items after first use — non-refundable once activated.
+3.3 Personalized or custom-made items — non-refundable unless defective.
+3.4 Perishable goods (food, flowers, plants) — non-refundable.
+3.5 Items marked as "Final Sale" or "Non-Returnable" at purchase — non-refundable.
+3.6 Digital goods (e-books, software licenses) after download/activation.
+
+4. DUPLICATE REFUND RESTRICTION
+---------------------------------
+4.1 Each order may only be refunded ONCE.
+4.2 If an order already has a return_status of "Refund Initiated" or "Returned",
+    no further refund requests will be accepted for that order.
+4.3 Customers attempting to refund an already-refunded order will be informed
+    of the existing refund record.
+
+5. USER OWNERSHIP & SECURITY
+------------------------------
+5.1 Customers must be logged in to initiate a refund.
+5.2 A refund can only be initiated for orders that belong to the logged-in user's account.
+5.3 Customers cannot initiate refunds on behalf of other users.
+5.4 The agent will verify order ownership before processing any refund action.
+
+6. REFUND PROCESS
+------------------
+6.1 Customer provides their Order ID and reason for the return.
+6.2 The agent verifies ownership (order belongs to the logged-in user).
+6.3 The agent checks return window eligibility based on product category.
+6.4 The agent checks for duplicate refund attempts.
+6.5 The agent checks payment method restrictions (e.g. Gift Card).
+6.6 If approved: order status is updated to "Refund Initiated" and a
+    confirmation email is sent to the customer's registered email address.
+6.7 If denied: the customer is shown the specific policy reason on screen.
+
+7. PROCESSING TIMELINE BY PAYMENT METHOD
+------------------------------------------
+7.1 Credit Card : 5–10 business days to appear on statement.
+7.2 Debit Card  : 3–5 business days.
+7.3 PayPal      : 1–3 business days.
+7.4 Gift Card   : Non-refundable (see Section 3.1).
+
+8. RETURN SHIPPING
+-------------------
+8.1 Customers are responsible for return shipping costs unless:
+    (a) The item was defective or damaged during shipping, OR
+    (b) The wrong item was sent.
+8.2 ShopWave will provide a prepaid return label for company-error returns.
+
+9. PARTIAL REFUNDS
+-------------------
+9.1 Items returned in used or opened condition may receive a partial refund
+    (50–75% of the product price) at agent discretion.
+9.2 Missing accessories or damaged original packaging: up to 25% deduction.
+9.3 Any discount applied to the original order will be deducted from the refund amount.
+
+10. FRAUD PREVENTION
+---------------------
+10.1 Customers with more than 3 refund requests in any 90-day rolling window
+     are flagged for manual review.
+10.2 Suspicious patterns (e.g. "item not received" on confirmed-delivered orders)
+     will be escalated to the customer trust team.
+
+11. AGENT AUTHORITY
+--------------------
+11.1 This AI agent can approve or deny refunds within the rules above.
+11.2 Refunds cannot be processed if the order does not belong to the logged-in user.
+11.3 Policy exceptions require human supervisor approval and cannot be granted
+     by this agent.
+=============================================================
