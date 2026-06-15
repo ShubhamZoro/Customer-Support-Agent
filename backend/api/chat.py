@@ -73,6 +73,7 @@ async def chat_websocket(
     session_id: str,
     auth: str = Query(default=""),
 ):
+    # Accept WebSocket connection (origin check handled by auth token below)
     await websocket.accept()
 
     # ── Authentication gate ──────────────────────────────────────────────────

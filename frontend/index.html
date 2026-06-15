@@ -4,7 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ShopWave AI Support — Customer Chat</title>
-  <meta name="description" content="AI-powered customer support for ShopWave e-commerce. Get instant help with refunds, returns, and order issues." />
+  <meta name="description" content="AI-powered customer support for ShopWave. Get instant help with refunds, returns, and order issues via chat or voice." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/css/main.css" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛒</text></svg>" />
 </head>
@@ -13,9 +16,12 @@
 <!-- ═══════════════════════════════════════ LOGIN OVERLAY ═══ -->
 <div class="login-overlay" id="login-overlay">
   <div class="login-card">
-    <div class="login-logo">🛒</div>
+    <div class="login-logo-wrap">
+      <div class="login-logo">🛒</div>
+      <div class="login-logo-glow"></div>
+    </div>
     <h1 class="login-title">ShopWave Support</h1>
-    <p class="login-subtitle">Sign in to access the AI refund assistant</p>
+    <p class="login-subtitle">Sign in to access your AI refund assistant</p>
 
     <form class="login-form" id="login-form" onsubmit="handleLogin(event)">
       <div class="form-group">
@@ -42,215 +48,266 @@
       </div>
 
       <div class="login-error" id="login-error">
-        <span>⚠️</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10zm-1-7v2h2v-2h-2zm0-8v6h2V7h-2z"/></svg>
         <span id="login-error-msg">Invalid email or password.</span>
       </div>
 
-      <button class="login-btn" id="login-btn" type="submit">Sign In</button>
+      <button class="login-btn" id="login-btn" type="submit">
+        <span class="btn-text">Sign In</span>
+        <div class="btn-spinner" id="btn-spinner"></div>
+      </button>
     </form>
 
-    <!-- Demo accounts quick-fill -->
+    <!-- Demo accounts -->
     <div class="demo-accounts">
-      <div class="demo-accounts-title">🧪 Demo Accounts (password: password123)</div>
-      <button class="demo-account-btn" onclick="fillDemo('alice.johnson@demo.com')">
-        <div class="demo-account-avatar">AJ</div>
-        alice.johnson@demo.com · Electronics, Books
-      </button>
-      <button class="demo-account-btn" onclick="fillDemo('bob.martinez@demo.com')">
-        <div class="demo-account-avatar">BM</div>
-        bob.martinez@demo.com · Home, Clothing
-      </button>
-      <button class="demo-account-btn" onclick="fillDemo('carol.white@demo.com')">
-        <div class="demo-account-avatar">CW</div>
-        carol.white@demo.com · Electronics + already refunded
-      </button>
-      <button class="demo-account-btn" onclick="fillDemo('david.chen@demo.com')">
-        <div class="demo-account-avatar">DC</div>
-        david.chen@demo.com · Gift Card order (non-refundable)
-      </button>
-      <button class="demo-account-btn" onclick="fillDemo('emma.davis@demo.com')">
-        <div class="demo-account-avatar">ED</div>
-        emma.davis@demo.com · Subscription (window expired)
-      </button>
+      <div class="demo-accounts-title">🧪 Demo Accounts — password: <code>password123</code></div>
+      <div class="demo-grid">
+        <button class="demo-account-btn" onclick="fillDemo('alice.johnson@demo.com')">
+          <div class="demo-avatar">AJ</div>
+          <div class="demo-info">
+            <div class="demo-name">Alice Johnson</div>
+            <div class="demo-tag">Electronics · Books</div>
+          </div>
+        </button>
+        <button class="demo-account-btn" onclick="fillDemo('bob.martinez@demo.com')">
+          <div class="demo-avatar" style="background:linear-gradient(135deg,#7c3aed,#6d28d9)">BM</div>
+          <div class="demo-info">
+            <div class="demo-name">Bob Martinez</div>
+            <div class="demo-tag">Home · Clothing</div>
+          </div>
+        </button>
+        <button class="demo-account-btn" onclick="fillDemo('carol.white@demo.com')">
+          <div class="demo-avatar" style="background:linear-gradient(135deg,#059669,#047857)">CW</div>
+          <div class="demo-info">
+            <div class="demo-name">Carol White</div>
+            <div class="demo-tag">Already refunded</div>
+          </div>
+        </button>
+        <button class="demo-account-btn" onclick="fillDemo('david.chen@demo.com')">
+          <div class="demo-avatar" style="background:linear-gradient(135deg,#d97706,#b45309)">DC</div>
+          <div class="demo-info">
+            <div class="demo-name">David Chen</div>
+            <div class="demo-tag">Gift Card (no refund)</div>
+          </div>
+        </button>
+        <button class="demo-account-btn" onclick="fillDemo('emma.davis@demo.com')">
+          <div class="demo-avatar" style="background:linear-gradient(135deg,#db2777,#be185d)">ED</div>
+          <div class="demo-info">
+            <div class="demo-name">Emma Davis</div>
+            <div class="demo-tag">Subscription expired</div>
+          </div>
+        </button>
+      </div>
     </div>
   </div>
 </div>
 
-<!-- ═══════════════════════════════════════ MAIN APP ══════ -->
-<div class="app-layout">
+<!-- ═══════════════════════════════════════ MAIN APP ════ -->
+<div class="app-layout" id="app-layout">
 
-  <!-- ═══════════════════════════════════════ HEADER ═══ -->
+  <!-- ════════════════════ HEADER ════ -->
   <header class="header">
     <div class="header-brand">
       <div class="header-logo">🛒</div>
-      <div>
+      <div class="header-brand-text">
         <div class="header-title">ShopWave Support</div>
-        <div class="header-subtitle">AI Refund Agent · Powered by GPT-4o</div>
+        <div class="header-subtitle">AI Refund Agent · GPT-4o</div>
       </div>
     </div>
 
     <nav class="header-nav">
-      <div style="display:flex;align-items:center;gap:6px;font-size:0.78rem;color:var(--text-muted)">
+      <div class="connection-status" id="connection-status">
         <div class="status-dot" id="connection-dot"></div>
-        <span id="connection-label">Connecting…</span>
+        <span class="status-label" id="connection-label">Connecting…</span>
       </div>
 
-      <!-- User pill (shown after login) -->
       <div class="user-pill" id="user-pill" style="display:none">
         <div class="user-pill-avatar" id="user-pill-avatar">?</div>
         <span class="user-pill-name" id="user-pill-name">—</span>
       </div>
 
-      <button class="nav-btn" onclick="toggleAutoSpeak()" id="auto-speak-toggle" title="Toggle voice responses">
-        🔇 Voice
+      <button class="nav-btn" id="auto-speak-toggle" onclick="toggleAutoSpeak()" title="Toggle voice responses" aria-label="Toggle voice responses">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>
+        Voice
       </button>
-      <button class="nav-btn" onclick="newSession()" title="Start a new chat session">
-        ➕ New Chat
+      <button class="nav-btn" onclick="newSession()" title="New chat session" aria-label="New chat session">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14l4-4h12c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 10H6.17L5 14.17V5h14v8z"/></svg>
+        New Chat
       </button>
-      <a href="/admin" class="nav-btn" title="Open admin dashboard">
-        📊 Admin
+      <a href="/admin" class="nav-btn" title="Admin dashboard" aria-label="Admin dashboard">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>
+        Admin
       </a>
-      <button class="logout-btn" id="logout-btn" onclick="handleLogout()" style="display:none" title="Sign out">
+      <button class="logout-btn" id="logout-btn" onclick="handleLogout()" style="display:none" aria-label="Sign out">
         Sign Out
       </button>
     </nav>
   </header>
 
-  <!-- ═══════════════════════════════════════ SIDEBAR ══ -->
-  <aside class="sidebar">
+  <!-- ════════════════════ BODY ════════ -->
+  <div class="app-body">
 
-    <!-- Customer Info -->
-    <div class="sidebar-section" id="customer-info">
-      <div class="sidebar-label">Logged In As</div>
-      <div class="text-sm text-muted" style="padding:4px 0" id="sidebar-user-info">Not signed in</div>
-    </div>
+    <!-- ════════════════════ SIDEBAR ════ -->
+    <aside class="sidebar">
 
-    <!-- Reasoning Logs Mini Panel -->
-    <div class="sidebar-section" style="flex:1;overflow:hidden;display:flex;flex-direction:column">
-      <div class="sidebar-label">Agent Reasoning</div>
-      <div id="mini-log" style="
-        flex:1;overflow-y:auto;
-        display:flex;flex-direction:column;gap:4px;
-        padding-top:4px;
-      "></div>
-    </div>
+      <!-- User Info -->
+      <div class="sidebar-section">
+        <div class="sidebar-label">Signed In As</div>
+        <div class="user-info-card" id="sidebar-user-info">
+          <div class="user-info-placeholder">Not signed in</div>
+        </div>
+      </div>
 
-    <!-- Quick actions -->
-    <div class="sidebar-section">
-      <div class="sidebar-label">Quick Prompts</div>
-      <button class="quick-btn" onclick="sendSuggestion('I want to initiate a refund for my order ORD-1001')">
-        <span class="icon">↩️</span> Request refund
-      </button>
-      <button class="quick-btn" onclick="sendSuggestion('What is your refund policy?')">
-        <span class="icon">📋</span> Refund policy
-      </button>
-      <button class="quick-btn" onclick="sendSuggestion('Show me all my orders')">
-        <span class="icon">📦</span> My orders
-      </button>
-      <button class="quick-btn" onclick="sendSuggestion('What is the return window for Electronics?')">
-        <span class="icon">❓</span> Policy question
-      </button>
-    </div>
-
-    <!-- Session ID -->
-    <div class="sidebar-section" style="padding:10px 16px">
-      <div class="sidebar-label">Session</div>
-      <code class="session-id-tag" id="session-id-display">—</code>
-    </div>
-
-  </aside>
-
-  <!-- ═══════════════════════════════════════ CHAT ═══════ -->
-  <main class="chat-area">
-
-    <!-- Messages -->
-    <div class="messages-container" id="messages">
-
-      <!-- Welcome Screen -->
-      <div class="welcome-screen" id="welcome-screen">
-        <div class="welcome-icon">🤖</div>
-        <h1 class="welcome-title">Hi, I'm ShopWave AI</h1>
-        <p class="welcome-subtitle">
-          I can help you with refunds, returns, and policy questions.
-          Provide your Order ID to get started — I already know who you are!
-        </p>
-        <div class="suggestion-chips">
-          <div class="chip" onclick="sendSuggestion('I want to initiate a refund for my order ORD-1001')">
-            🔄 Refund order ORD-1001
+      <!-- Voice Component -->
+      <div class="sidebar-section voice-section">
+        <div class="sidebar-label">Voice Input</div>
+        <div class="voice-component" id="voice-component">
+          <div class="voice-orb" id="voice-orb" onclick="toggleRecording()" title="Click to record" aria-label="Toggle voice recording">
+            <div class="voice-orb-rings">
+              <div class="voice-ring r1"></div>
+              <div class="voice-ring r2"></div>
+              <div class="voice-ring r3"></div>
+            </div>
+            <div class="voice-orb-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" id="mic-icon">
+                <path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/>
+              </svg>
+            </div>
           </div>
-          <div class="chip" onclick="sendSuggestion('Show me all my orders')">
-            📦 View my orders
-          </div>
-          <div class="chip" onclick="sendSuggestion('My item arrived damaged, order ORD-2001')">
-            💥 Damaged item
-          </div>
-          <div class="chip" onclick="sendSuggestion('What is the return policy for Clothing?')">
-            📋 Clothing policy
-          </div>
-          <div class="chip" onclick="sendSuggestion('I received the wrong item in order ORD-3001')">
-            ❌ Wrong item received
+          <div class="voice-label" id="voice-label">Click to speak</div>
+          <div class="voice-wave-bars" id="voice-wave-bars">
+            <span></span><span></span><span></span><span></span><span></span>
+            <span></span><span></span>
           </div>
         </div>
       </div>
 
-      <!-- Typing Indicator -->
-      <div class="typing-indicator" id="typing-indicator">
-        <div class="msg-avatar bot">🤖</div>
-        <div class="typing-dots">
-          <span></span><span></span><span></span>
+      <!-- Reasoning Log Mini -->
+      <div class="sidebar-section reasoning-section">
+        <div class="sidebar-label">Agent Reasoning</div>
+        <div id="mini-log" class="mini-log-container"></div>
+      </div>
+
+      <!-- Quick Prompts -->
+      <div class="sidebar-section">
+        <div class="sidebar-label">Quick Prompts</div>
+        <div class="quick-prompts">
+          <button class="quick-btn" onclick="sendSuggestion('I want to request a refund')">
+            <span>↩️</span> Request refund
+          </button>
+          <button class="quick-btn" onclick="sendSuggestion('Show me all my orders')">
+            <span>📦</span> My orders
+          </button>
+          <button class="quick-btn" onclick="sendSuggestion('What is your refund policy?')">
+            <span>📋</span> Refund policy
+          </button>
+          <button class="quick-btn" onclick="sendSuggestion('My item arrived damaged, I need a refund')">
+            <span>💥</span> Damaged item
+          </button>
         </div>
       </div>
 
-    </div>
+      <!-- Session ID -->
+      <div class="sidebar-section sidebar-footer">
+        <div class="sidebar-label">Session</div>
+        <code class="session-tag" id="session-id-display">—</code>
+      </div>
 
-    <!-- Input Area -->
-    <div class="input-area">
-      <!-- Voice status bar -->
-      <div class="voice-status" id="voice-status">
-        <div class="voice-wave">
-          <span></span><span></span><span></span><span></span><span></span>
+    </aside>
+
+    <!-- ════════════════════ CHAT ════════ -->
+    <main class="chat-area">
+
+      <!-- Messages -->
+      <div class="messages-container" id="messages">
+
+        <!-- Welcome -->
+        <div class="welcome-screen" id="welcome-screen">
+          <div class="welcome-icon-wrap">
+            <div class="welcome-icon">🤖</div>
+            <div class="welcome-icon-pulse"></div>
+          </div>
+          <h1 class="welcome-title">Hi, I'm ShopWave AI</h1>
+          <p class="welcome-subtitle">
+            I can help you with refunds, returns, and policy questions.<br/>
+            I already know who you are — just tell me what you need!
+          </p>
+          <div class="suggestion-chips" id="suggestion-chips">
+            <div class="chip" onclick="sendSuggestion('I want a refund on my recent order')">
+              🔄 Request a refund
+            </div>
+            <div class="chip" onclick="sendSuggestion('Show me all my orders')">
+              📦 View my orders
+            </div>
+            <div class="chip" onclick="sendSuggestion('My item arrived damaged')">
+              💥 Damaged item
+            </div>
+            <div class="chip" onclick="sendSuggestion('What is the return policy for Electronics?')">
+              📋 Return policy
+            </div>
+            <div class="chip" onclick="sendSuggestion('I received the wrong item')">
+              ❌ Wrong item
+            </div>
+          </div>
         </div>
-        <span>Recording… click mic to stop</span>
+
+        <!-- Typing Indicator -->
+        <div class="typing-indicator" id="typing-indicator">
+          <div class="msg-avatar bot">🤖</div>
+          <div class="typing-bubble">
+            <div class="typing-dots">
+              <span></span><span></span><span></span>
+            </div>
+          </div>
+        </div>
+
       </div>
 
-      <div class="input-container">
-        <textarea
-          id="message-input"
-          placeholder="Describe your issue or type an Order ID to get started…"
-          rows="1"
-          aria-label="Message input"
-        ></textarea>
+      <!-- Input Area -->
+      <div class="input-area">
+        <div class="input-container">
+          <textarea
+            id="message-input"
+            class="message-input"
+            placeholder="Describe your issue or ask about a refund…"
+            rows="1"
+            aria-label="Chat message input"
+          ></textarea>
 
-        <button
-          class="icon-btn"
-          id="mic-btn"
-          title="Voice input"
-          onclick="toggleRecording()"
-          aria-label="Toggle voice recording"
-        >🎤</button>
+          <button
+            class="icon-btn mic-btn"
+            id="mic-btn"
+            title="Voice input"
+            onclick="toggleRecording()"
+            aria-label="Toggle voice recording"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/>
+            </svg>
+          </button>
 
-        <button
-          class="send-btn"
-          id="send-btn"
-          title="Send message (Enter)"
-          onclick="sendMessage(document.getElementById('message-input').value)"
-          aria-label="Send message"
-        >➤</button>
+          <button
+            class="send-btn"
+            id="send-btn"
+            title="Send message (Enter)"
+            onclick="sendMessage(document.getElementById('message-input').value)"
+            aria-label="Send message"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+          </button>
+        </div>
+
+        <div class="input-hints">
+          <span>Press <kbd>Enter</kbd> to send · <kbd>Shift+Enter</kbd> for new line</span>
+          <span>Powered by GPT-4o + LangGraph</span>
+        </div>
       </div>
 
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;padding:0 2px">
-        <span style="font-size:0.68rem;color:var(--text-muted)">
-          Press <kbd>Enter</kbd> to send · <kbd>Shift+Enter</kbd> for new line
-        </span>
-        <span style="font-size:0.68rem;color:var(--text-muted)">
-          Powered by GPT-4o + LangGraph
-        </span>
-      </div>
-    </div>
+    </main>
 
-  </main>
+  </div><!-- end app-body -->
 
-</div>
+</div><!-- end app-layout -->
 
 <script src="/static/js/chat.js"></script>
 </body>

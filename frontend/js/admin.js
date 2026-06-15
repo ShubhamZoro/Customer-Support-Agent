@@ -1,53 +1,49 @@
 /* =====================================================
-   ShopWave Admin Dashboard JS — Realtime Reasoning Logs
+   ShopWave Admin Dashboard JS — v2.0
+   Real-time reasoning logs · Session management
+   User creation & listing · No-order refund guard
    ===================================================== */
 
-const API_BASE = 'http://localhost:8000';
-const WS_BASE  = 'ws://localhost:8000';
+const API_BASE = (window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file'))
+  ? window.location.origin
+  : 'http://localhost:8000';
+const WS_BASE  = API_BASE.replace(/^http/, 'ws');
 
-// ─── State ──────────────────────────────────────────────
+// ─── State ──────────────────────────────────────────────────────────────────
 let adminWs       = null;
 let sessions      = {};
 let activeSession = null;
 let logFilter     = 'all';
 let autoScroll    = true;
+let allUsers      = [];
 
-// Stats counters
-let stats = { total: 0, approved: 0, denied: 0, escalated: 0 };
+let stats = { total: 0, approved: 0, denied: 0 };
 
-// ─── DOM Refs ────────────────────────────────────────────
-const sessionListEl   = document.getElementById('session-list');
-const logStreamEl     = document.getElementById('log-stream');
-const detailPanelEl   = document.getElementById('detail-content');
-const wsDotEl         = document.getElementById('ws-dot');
-const wsLabelEl       = document.getElementById('ws-label');
-const logCountEl      = document.getElementById('log-count');
-const sessionCountEl  = document.getElementById('session-count');
+// ─── DOM refs ────────────────────────────────────────────────────────────────
+const $  = (id) => document.getElementById(id);
+const sessionListEl  = $('session-list');
+const logStreamEl    = $('log-stream');
+const detailContent  = $('detail-content');
 
-// Stat displays
-const statTotal     = document.getElementById('stat-total');
-const statApproved  = document.getElementById('stat-approved');
-const statDenied    = document.getElementById('stat-denied');
-const statEscalated = document.getElementById('stat-escalated');
-
-// ─── Init ────────────────────────────────────────────────
+// ─── Init ────────────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', () => {
   connectAdminWS();
   loadInitialSessions();
-  setInterval(loadInitialSessions, 30000); // refresh every 30s
+  loadUsers();
+  setInterval(loadInitialSessions, 30000);
 });
 
-// ─── WebSocket ───────────────────────────────────────────
+// ─── WebSocket ───────────────────────────────────────────────────────────────
 function connectAdminWS() {
   adminWs = new WebSocket(`${WS_BASE}/ws/admin`);
 
-  adminWs.onopen = () => {
-    setWsStatus(true);
-  };
+  adminWs.onopen = () => setWsStatus(true);
 
   adminWs.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-    handleAdminMessage(data);
+    try {
+      const data = JSON.parse(event.data);
+      handleAdminMessage(data);
+    } catch (e) { console.error('WS parse error', e); }
   };
 
   adminWs.onclose = () => {
@@ -59,11 +55,13 @@ function connectAdminWS() {
 }
 
 function setWsStatus(connected) {
-  wsDotEl.classList.toggle('connected', connected);
-  wsLabelEl.textContent = connected ? 'Live' : 'Reconnecting…';
+  const dot   = $('ws-dot');
+  const label = $('ws-label');
+  if (dot)   dot.classList.toggle('connected', connected);
+  if (label) label.textContent = connected ? 'Live' : 'Reconnecting…';
 }
 
-// ─── Message Handler ─────────────────────────────────────
+// ─── Message Handler ──────────────────────────────────────────────────────────
 function handleAdminMessage(data) {
   switch (data.type) {
     case 'init':
@@ -74,11 +72,10 @@ function handleAdminMessage(data) {
     case 'session_update':
       upsertSession(data.session);
       renderSessionList();
-      updateStats(data.session);
+      updateStats();
       break;
 
     case 'reasoning_log':
-      // Always add to log stream if it matches the active session or no active session
       if (!activeSession || data.session_id === activeSession) {
         appendLogEntry(data.log, data.session_id);
       }
@@ -86,128 +83,142 @@ function handleAdminMessage(data) {
   }
 }
 
-// ─── Load sessions via REST ───────────────────────────────
+// ─── Sessions via REST ────────────────────────────────────────────────────────
 async function loadInitialSessions() {
   try {
-    const res = await fetch(`${API_BASE}/api/admin/sessions`);
+    const res  = await fetch(`${API_BASE}/api/admin/sessions`);
     const data = await res.json();
     data.forEach(s => upsertSession(s));
     renderSessionList();
-    updateAllStats();
+    updateStats();
   } catch (err) {
     console.error('Failed to load sessions:', err);
   }
 }
 
-// ─── Session Management ───────────────────────────────────
 function upsertSession(session) {
   sessions[session.session_id] = { ...sessions[session.session_id], ...session };
 }
 
+// ─── Render Session List ──────────────────────────────────────────────────────
 function renderSessionList() {
   if (!sessionListEl) return;
+
   const sorted = Object.values(sessions).sort(
     (a, b) => new Date(b.created_at) - new Date(a.created_at)
   );
 
-  if (sessionCountEl) sessionCountEl.textContent = sorted.length;
+  const countEl = $('session-count');
+  if (countEl) countEl.textContent = sorted.length;
 
-  sessionListEl.innerHTML = sorted.length === 0
-    ? '<div class="log-empty"><div class="icon">📭</div><div>No active sessions yet</div></div>'
-    : sorted.map(s => renderSessionItem(s)).join('');
+  if (sorted.length === 0) {
+    sessionListEl.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">📭</div>
+        <div>No active sessions yet.<br/>Start a chat to see sessions here.</div>
+      </div>`;
+    return;
+  }
+
+  sessionListEl.innerHTML = sorted.map(s => renderSessionItem(s)).join('');
 }
 
 function renderSessionItem(s) {
   const decision = s.refund_decision || 'pending';
-  const time = formatRelTime(s.created_at);
   const isActive = s.session_id === activeSession;
-  const shortId = s.session_id.substring(0, 12) + '…';
-  const custLabel = s.customer_id ? s.customer_id : 'Unknown customer';
+  const shortId  = s.session_id.substring(0, 14) + '…';
+  const email    = s.user_email || 'Unknown';
+  const time     = formatRelTime(s.created_at);
+  const msgs     = s.message_count || 0;
 
   return `
     <div class="session-item ${isActive ? 'active' : ''}"
-         onclick="selectSession('${s.session_id}')"
-         id="sess-${s.session_id}">
+         id="sess-${s.session_id}"
+         onclick="selectSession('${s.session_id}')">
       <div class="session-id">${shortId}</div>
-      <div class="session-customer">${custLabel}</div>
+      <div class="session-email">${escHtml(email)}</div>
       <div class="session-meta">
         <div class="decision-dot ${decision}"></div>
         <span>${decision}</span>
         <span>·</span>
-        <span>${s.message_count || 0} msgs</span>
+        <span>${msgs} msg${msgs !== 1 ? 's' : ''}</span>
         <span>·</span>
         <span>${time}</span>
       </div>
-    </div>
-  `;
+    </div>`;
 }
 
+function filterSessions(q) {
+  document.querySelectorAll('.session-item').forEach(item => {
+    const show = !q || item.textContent.toLowerCase().includes(q.toLowerCase());
+    item.style.display = show ? '' : 'none';
+  });
+}
+
+// ─── Select Session ───────────────────────────────────────────────────────────
 async function selectSession(sessionId) {
   activeSession = sessionId;
   renderSessionList();
   clearLogs();
 
-  // Load session logs
   try {
-    const res = await fetch(`${API_BASE}/api/admin/sessions/${sessionId}/logs`);
+    const res  = await fetch(`${API_BASE}/api/admin/sessions/${sessionId}/logs`);
     const data = await res.json();
 
-    // Render existing logs
+    // Render stored logs
     (data.reasoning_log || []).forEach(log => appendLogEntry(log, sessionId));
 
-    // Load customer detail if available
-    if (data.customer_id) {
-      loadCustomerDetail(data.customer_id, data.refund_decision);
+    // Load user profile if user_id present
+    if (data.user_id) {
+      loadUserProfile(data.user_id, data.refund_decision);
     } else {
       renderDetailEmpty();
     }
   } catch (err) {
     console.error('Failed to load session logs:', err);
+    renderDetailEmpty();
   }
 }
 
-// ─── Log Rendering ────────────────────────────────────────
+// ─── Log Rendering ────────────────────────────────────────────────────────────
 function appendLogEntry(log, sessionId) {
   if (!logStreamEl) return;
-
-  // Apply filter
   if (logFilter !== 'all' && log.level !== logFilter) return;
 
   const icons = { info: 'ℹ️', success: '✅', error: '❌', warning: '⚠️' };
-  const time = formatLogTime(log.timestamp);
+  const icon  = icons[log.level] || '📋';
+  const time  = formatLogTime(log.timestamp);
   const hasDetail = log.detail && Object.keys(log.detail).length > 0;
   const detailJson = hasDetail ? JSON.stringify(log.detail, null, 2) : '';
 
   const entry = document.createElement('div');
-  entry.className = `log-entry ${log.level}`;
+  entry.className = `log-entry ${log.level || 'info'}`;
   entry.innerHTML = `
-    <div class="log-icon">${icons[log.level] || '📋'}</div>
+    <div class="log-icon">${icon}</div>
     <div class="log-content">
-      <div class="log-node">${log.node}</div>
+      <div class="log-node">${escHtml(log.node || 'agent')}</div>
       <div class="log-message">${renderLogMessage(log.message)}</div>
       ${hasDetail ? `
-        <button class="log-expand-btn" onclick="toggleLogDetail(this)">
-          ▶ Show details
-        </button>
-        <div class="log-detail">${escapeHtml(detailJson)}</div>
+        <button class="log-expand-btn" onclick="toggleLogDetail(this)">▶ Show details</button>
+        <div class="log-detail">${escHtml(detailJson)}</div>
       ` : ''}
     </div>
     <div class="log-time">${time}</div>
   `;
 
-  // Remove empty state if present
-  const empty = logStreamEl.querySelector('.log-empty');
+  // Remove empty state
+  const empty = logStreamEl.querySelector('.empty-state');
   if (empty) empty.remove();
 
   logStreamEl.appendChild(entry);
 
   // Update count
-  const count = logStreamEl.querySelectorAll('.log-entry').length;
-  if (logCountEl) logCountEl.textContent = count;
+  const countEl = $('log-count');
+  if (countEl) countEl.textContent = logStreamEl.querySelectorAll('.log-entry').length;
 
   if (autoScroll) {
-    const logPanel = document.getElementById('log-panel-body');
-    if (logPanel) logPanel.scrollTop = logPanel.scrollHeight;
+    const body = $('log-panel-body');
+    if (body) body.scrollTop = body.scrollHeight;
   }
 }
 
@@ -218,6 +229,7 @@ function toggleLogDetail(btn) {
 }
 
 function renderLogMessage(msg) {
+  if (!msg) return '';
   return msg
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
@@ -227,139 +239,332 @@ function renderLogMessage(msg) {
 function clearLogs() {
   if (!logStreamEl) return;
   logStreamEl.innerHTML = `
-    <div class="log-empty">
-      <div class="icon">🧠</div>
+    <div class="empty-state">
+      <div class="empty-icon">🧠</div>
       <div>Select a session to view reasoning logs</div>
-    </div>
-  `;
-  if (logCountEl) logCountEl.textContent = '0';
+    </div>`;
+  const countEl = $('log-count');
+  if (countEl) countEl.textContent = '0';
 }
 
-// ─── Filter ───────────────────────────────────────────────
+// ─── Filter ───────────────────────────────────────────────────────────────────
 function setLogFilter(filter) {
   logFilter = filter;
   document.querySelectorAll('.log-filter-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.filter === filter);
   });
-  // Re-render current session logs
   if (activeSession) selectSession(activeSession);
 }
 
-// ─── Customer Detail ──────────────────────────────────────
-async function loadCustomerDetail(customerId, decision) {
+// ─── User Profile (detail panel) ─────────────────────────────────────────────
+async function loadUserProfile(userId, decision) {
   try {
-    const res = await fetch(`${API_BASE}/api/admin/customers/${customerId}`);
-    const customer = await res.json();
-    renderCustomerDetail(customer, decision);
-  } catch (err) {
+    const res  = await fetch(`${API_BASE}/api/admin/users/${userId}`);
+    if (!res.ok) { renderDetailEmpty(); return; }
+    const user = await res.json();
+    renderUserDetail(user, decision);
+  } catch {
     renderDetailEmpty();
   }
 }
 
-function renderCustomerDetail(customer, decision) {
-  if (!detailPanelEl) return;
-  const initials = customer.name.split(' ').map(n => n[0]).join('');
-  const tierClass = `tier-${customer.tier}`;
-  const decisionBadge = decision
-    ? `<span class="badge badge-${decision}">${decision}</span>`
-    : '<span class="badge badge-pending">Pending</span>';
+function renderUserDetail(user, decision) {
+  if (!detailContent) return;
 
-  const ordersHtml = Object.values(customer.orders || {}).map(o => `
-    <div class="order-item">
-      <div class="order-id-tag">${o.order_id}</div>
-      <div class="flex items-center gap-2">
-        <span class="order-amount">$${o.total.toFixed(2)}</span>
-        <span class="order-date">${o.date}</span>
-      </div>
-      <div style="font-size:0.72rem;color:var(--text-muted)">
-        ${o.items.map(i => i.name).join(', ')}
-      </div>
-    </div>
-  `).join('');
+  const initials = (user.email || '?').split('@')[0].slice(0, 2).toUpperCase();
+  const hasOrders = user.order_count > 0;
 
-  detailPanelEl.innerHTML = `
+  // Decision badge
+  let decisionBadge = '';
+  if (decision === 'refund_initiated') {
+    decisionBadge = `<span class="badge badge-refund_initiated">✅ Refund Initiated</span>`;
+  } else if (decision === 'denied') {
+    decisionBadge = `<span class="badge badge-denied">❌ Denied</span>`;
+  } else {
+    decisionBadge = `<span class="badge badge-pending">⏳ Pending</span>`;
+  }
+
+  // No-order warning
+  const noOrderWarning = !hasOrders ? `
+    <div class="no-orders-warning">
+      <div class="no-orders-warning-icon">⚠️</div>
+      <div class="no-orders-warning-text">
+        <strong>No Orders Found</strong>
+        This user has no orders. Any refund request will be automatically declined by the agent.
+      </div>
+    </div>` : '';
+
+  // Orders HTML
+  const ordersHtml = (user.orders || []).map(o => {
+    const statusClass =
+      o.return_status === 'Refund Initiated' ? 'refunded' :
+      o.return_status === 'Returned'         ? 'returned' : 'pending';
+    const statusLabel =
+      o.return_status === 'Refund Initiated' ? '💸 Refunded' :
+      o.return_status === 'Returned'         ? '✅ Returned' : '📦 Active';
+    const total = ((o.product_price * o.order_quantity) - o.discount_applied).toFixed(2);
+    return `
+      <div class="order-card">
+        <div class="order-top">
+          <span class="order-id-tag">${o.order_id}</span>
+          <span class="order-status ${statusClass}">${statusLabel}</span>
+        </div>
+        <div class="order-mid">
+          <span class="order-cat">${o.product_category}</span>
+          <span class="order-amt">$${total}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between">
+          <span class="order-date">📅 ${o.order_date}</span>
+          <span class="order-pay">💳 ${o.payment_method}</span>
+        </div>
+      </div>`;
+  }).join('');
+
+  detailContent.innerHTML = `
     <div class="customer-profile">
       <div class="profile-avatar">${initials}</div>
-      <div class="profile-name">${customer.name}</div>
-      <div class="profile-email">${customer.email}</div>
-      <div class="flex items-center gap-2">
-        <span class="tier-badge ${tierClass}">⭐ ${customer.tier}</span>
+      <div class="profile-name">${escHtml(user.email.split('@')[0])}</div>
+      <div class="profile-email">${escHtml(user.email)}</div>
+      <div class="profile-id">${user.user_id}</div>
+      <div class="profile-badges">
         ${decisionBadge}
+        <span class="badge ${hasOrders ? 'badge-refund_initiated' : 'badge-no-orders'}">
+          ${hasOrders ? `📦 ${user.order_count} order${user.order_count !== 1 ? 's' : ''}` : '⚠️ No orders'}
+        </span>
       </div>
       <div class="profile-stats">
         <div class="stat-box">
-          <div class="sv" style="color:var(--accent)">${customer.total_refunds_this_year}/3</div>
-          <div class="sk">Refunds</div>
+          <div class="stat-box-val">${user.user_age || '—'}</div>
+          <div class="stat-box-key">Age</div>
         </div>
         <div class="stat-box">
-          <div class="sv">$${customer.total_refund_amount_this_year.toFixed(0)}</div>
-          <div class="sk">Total</div>
+          <div class="stat-box-val">${user.user_gender || '—'}</div>
+          <div class="stat-box-key">Gender</div>
         </div>
-        <div class="stat-box">
-          <div class="sv">${Math.round(customer.account_age_days / 30)}mo</div>
-          <div class="sk">Account Age</div>
-        </div>
-        <div class="stat-box">
-          <div class="sv" style="color:var(--warning)">${customer.loyalty_points.toLocaleString()}</div>
-          <div class="sk">Points</div>
+        <div class="stat-box" style="grid-column:span 2">
+          <div class="stat-box-val" style="font-size:0.85rem">${user.user_location || '—'}</div>
+          <div class="stat-box-key">Location</div>
         </div>
       </div>
     </div>
-    <div class="panel-header" style="padding:10px 16px">
-      <div class="panel-title"><span class="icon">📦</span> Orders</div>
+    ${noOrderWarning}
+    <div class="orders-section">
+      <div class="orders-title">📦 Orders (${user.order_count})</div>
+      ${hasOrders ? ordersHtml : '<div style="color:var(--text-muted);font-size:0.8rem;padding:8px 0">No orders on record for this account.</div>'}
     </div>
-    ${ordersHtml || '<div class="log-empty" style="padding:20px">No orders found</div>'}
   `;
 }
 
 function renderDetailEmpty() {
-  if (!detailPanelEl) return;
-  detailPanelEl.innerHTML = `
-    <div class="detail-empty">
-      <div class="icon">👤</div>
-      <div>Select a session to view<br>customer details</div>
-    </div>
-  `;
+  if (!detailContent) return;
+  detailContent.innerHTML = `
+    <div class="empty-state">
+      <div class="empty-icon">👤</div>
+      <div>Select a session to view<br/>customer details here.</div>
+    </div>`;
 }
 
-// ─── Stats ────────────────────────────────────────────────
-function updateStats(session) {
-  if (session.refund_decision) {
-    // Avoid double counting
-    if (!sessions[session.session_id]?.counted) {
-      sessions[session.session_id] = { ...sessions[session.session_id], counted: true };
-      if (session.refund_decision === 'approved') stats.approved++;
-      else if (session.refund_decision === 'denied') stats.denied++;
-      else if (session.refund_decision === 'escalated') stats.escalated++;
-    }
-  }
-  stats.total = Object.keys(sessions).length;
-  renderStats();
-}
-
-function updateAllStats() {
-  stats = { total: 0, approved: 0, denied: 0, escalated: 0 };
+// ─── Stats ────────────────────────────────────────────────────────────────────
+function updateStats() {
+  stats = { total: 0, approved: 0, denied: 0 };
   Object.values(sessions).forEach(s => {
     stats.total++;
-    if (s.refund_decision === 'approved') stats.approved++;
-    else if (s.refund_decision === 'denied') stats.denied++;
-    else if (s.refund_decision === 'escalated') stats.escalated++;
+    const d = s.refund_decision;
+    if (d === 'refund_initiated' || d === 'approved') stats.approved++;
+    else if (d === 'denied') stats.denied++;
   });
-  renderStats();
+
+  const t = $('stat-total');
+  const a = $('stat-approved');
+  const d = $('stat-denied');
+  if (t) t.textContent = stats.total;
+  if (a) a.textContent = stats.approved;
+  if (d) d.textContent = stats.denied;
 }
 
-function renderStats() {
-  if (statTotal)     statTotal.textContent     = stats.total;
-  if (statApproved)  statApproved.textContent  = stats.approved;
-  if (statDenied)    statDenied.textContent    = stats.denied;
-  if (statEscalated) statEscalated.textContent = stats.escalated;
+// ─── Users ────────────────────────────────────────────────────────────────────
+async function loadUsers() {
+  try {
+    const res  = await fetch(`${API_BASE}/api/admin/users`);
+    allUsers   = await res.json();
+    const el   = $('stat-users');
+    if (el) el.textContent = allUsers.length;
+  } catch {
+    allUsers = [];
+  }
 }
 
-// ─── Helpers ─────────────────────────────────────────────
+// ─── User List Modal ──────────────────────────────────────────────────────────
+function openUserList() {
+  const modal = $('user-list-modal');
+  if (!modal) return;
+  modal.classList.add('open');
+  renderUserList(allUsers);
+  // Refresh from server
+  loadUsers().then(() => renderUserList(allUsers));
+}
+
+function closeUserList() {
+  const modal = $('user-list-modal');
+  if (modal) modal.classList.remove('open');
+}
+
+function filterUserList(q) {
+  const filtered = allUsers.filter(u =>
+    !q ||
+    u.email.toLowerCase().includes(q.toLowerCase()) ||
+    u.user_id.toLowerCase().includes(q.toLowerCase())
+  );
+  renderUserList(filtered);
+}
+
+function renderUserList(users) {
+  const el = $('user-list-items');
+  if (!el) return;
+
+  if (!users.length) {
+    el.innerHTML = `<div class="empty-state"><div class="empty-icon">👥</div><div>No users found.</div></div>`;
+    return;
+  }
+
+  el.innerHTML = users.map(u => {
+    const initials = u.email.split('@')[0].slice(0, 2).toUpperCase();
+    const name     = u.email.split('@')[0].replace(/\./g, ' ');
+    const hasOrders = u.has_orders;
+    return `
+      <div class="user-list-item" onclick="selectUserFromList('${u.user_id}')">
+        <div class="user-avatar">${initials}</div>
+        <div class="user-details">
+          <div class="user-name">${escHtml(name)}</div>
+          <div class="user-email">${escHtml(u.email)}</div>
+        </div>
+        <div class="user-meta">
+          <span class="order-badge ${hasOrders ? 'has-orders' : 'no-orders'}">
+            ${hasOrders ? `📦 ${u.order_count} order${u.order_count !== 1 ? 's' : ''}` : '⚠️ No orders'}
+          </span>
+          <span class="user-id-tag">${u.user_id}</span>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function selectUserFromList(userId) {
+  closeUserList();
+  loadUserProfile(userId, null);
+}
+
+// ─── Create User Modal ────────────────────────────────────────────────────────
+function openCreateUserModal() {
+  const modal = $('create-user-modal');
+  if (modal) modal.classList.add('open');
+
+  // Reset form
+  const form = $('create-user-form');
+  if (form) form.reset();
+  const err = $('cu-error');
+  const suc = $('cu-success');
+  if (err) err.style.display = 'none';
+  if (suc) suc.style.display = 'none';
+}
+
+function closeCreateUserModal() {
+  const modal = $('create-user-modal');
+  if (modal) modal.classList.remove('open');
+}
+
+async function submitCreateUser(event) {
+  event.preventDefault();
+
+  const email    = $('cu-email')?.value.trim();
+  const password = $('cu-password')?.value;
+  const age      = parseInt($('cu-age')?.value) || null;
+  const gender   = $('cu-gender')?.value || null;
+  const location = $('cu-location')?.value.trim() || null;
+
+  const errEl = $('cu-error');
+  const sucEl = $('cu-success');
+  const btn   = $('cu-submit-btn');
+
+  if (errEl) errEl.style.display = 'none';
+  if (sucEl) sucEl.style.display = 'none';
+  if (btn)   { btn.disabled = true; btn.textContent = 'Creating…'; }
+
+  try {
+    const resp = await fetch(`${API_BASE}/api/admin/users`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        email,
+        password,
+        user_age:      age,
+        user_gender:   gender,
+        user_location: location,
+      }),
+    });
+
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      if (errEl) {
+        errEl.textContent = data.detail || 'Failed to create user.';
+        errEl.style.display = 'block';
+      }
+      return;
+    }
+
+    // Success
+    if (sucEl) {
+      sucEl.textContent = `✅ User ${email} created with ID ${data.user_id}. They have no orders — refund requests will be declined.`;
+      sucEl.style.display = 'block';
+    }
+
+    // Refresh user list & stats
+    await loadUsers();
+
+    // Reset form fields (keep modal open to show success)
+    $('cu-email').value    = '';
+    $('cu-password').value = '';
+    $('cu-age').value      = '';
+    $('cu-gender').value   = '';
+    $('cu-location').value = '';
+
+    // Add to user list if open
+    renderUserList(allUsers);
+
+  } catch (err) {
+    if (errEl) {
+      errEl.textContent = 'Connection error. Is the server running?';
+      errEl.style.display = 'block';
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg> Create User`;
+    }
+  }
+}
+
+// Close modals on overlay click
+document.addEventListener('click', (e) => {
+  if (e.target.classList.contains('modal-overlay')) {
+    closeUserList();
+    closeCreateUserModal();
+  }
+});
+
+// Escape key closes modals
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    closeUserList();
+    closeCreateUserModal();
+  }
+});
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 function formatRelTime(iso) {
   const diff = Date.now() - new Date(iso).getTime();
-  if (diff < 60000) return 'just now';
-  if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
+  if (diff < 60000)    return 'just now';
+  if (diff < 3600000)  return Math.floor(diff / 60000) + 'm ago';
   if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
   return new Date(iso).toLocaleDateString();
 }
@@ -367,11 +572,14 @@ function formatRelTime(iso) {
 function formatLogTime(iso) {
   try {
     return new Date(iso).toLocaleTimeString([], {
-      hour: '2-digit', minute: '2-digit', second: '2-digit'
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
     });
   } catch { return '--:--:--'; }
 }
 
-function escapeHtml(str) {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+function escHtml(str) {
+  if (!str) return '';
+  return str
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }

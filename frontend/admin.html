@@ -4,7 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ShopWave Admin — Realtime Agent Dashboard</title>
-  <meta name="description" content="Admin dashboard for the ShopWave AI Customer Support Agent. Monitor real-time reasoning logs, session decisions, and customer profiles." />
+  <meta name="description" content="Admin dashboard for ShopWave AI. Monitor real-time agent reasoning, sessions, and manage users." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/css/admin.css" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>" />
 </head>
@@ -22,36 +25,35 @@
 
     <div class="header-stats">
       <div class="stat-pill">
-        <span class="label">Sessions</span>
-        <span class="value purple" id="stat-total">0</span>
+        <span class="stat-label">Sessions</span>
+        <span class="stat-val purple" id="stat-total">0</span>
       </div>
       <div class="stat-pill">
-        <span class="label">Approved</span>
-        <span class="value green" id="stat-approved">0</span>
+        <span class="stat-label">Refunded</span>
+        <span class="stat-val green" id="stat-approved">0</span>
       </div>
       <div class="stat-pill">
-        <span class="label">Denied</span>
-        <span class="value red" id="stat-denied">0</span>
+        <span class="stat-label">Denied</span>
+        <span class="stat-val red" id="stat-denied">0</span>
       </div>
       <div class="stat-pill">
-        <span class="label">Escalated</span>
-        <span class="value yellow" id="stat-escalated">0</span>
+        <span class="stat-label">Users</span>
+        <span class="stat-val blue" id="stat-users">—</span>
       </div>
     </div>
 
-    <div style="display:flex;align-items:center;gap:12px">
-      <div class="ws-indicator">
+    <div class="header-actions">
+      <div class="ws-indicator" id="ws-indicator">
         <div class="ws-dot" id="ws-dot"></div>
-        <span id="ws-label">Connecting…</span>
+        <span class="ws-label" id="ws-label">Connecting…</span>
       </div>
-      <a href="/" style="
-        padding:6px 14px;border-radius:6px;
-        border:1px solid var(--border);background:transparent;
-        color:var(--text-secondary);font-size:0.8rem;
-        text-decoration:none;transition:var(--transition);
-        display:flex;align-items:center;gap:6px;
-      " onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='transparent'">
-        💬 Customer Chat
+      <button class="admin-action-btn purple" id="create-user-btn" onclick="openCreateUserModal()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+        Create User
+      </button>
+      <a href="/" class="admin-action-btn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>
+        Customer Chat
       </a>
     </div>
   </header>
@@ -59,186 +61,181 @@
   <!-- ══════════════════════════════════ BODY ════════════ -->
   <div class="admin-body">
 
-    <!-- ──────── LEFT: Sessions Panel ──────── -->
+    <!-- ─── LEFT: Sessions ─── -->
     <section class="panel" id="sessions-panel">
       <div class="panel-header">
         <div class="panel-title">
-          <span class="icon">💬</span> Sessions
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
+          Sessions
           <span class="panel-count" id="session-count">0</span>
         </div>
-        <button class="icon-action-btn" onclick="loadInitialSessions()" title="Refresh sessions">🔄</button>
+        <div class="panel-header-actions">
+          <button class="icon-action-btn" onclick="loadInitialSessions()" title="Refresh" aria-label="Refresh sessions">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+          </button>
+        </div>
       </div>
-
-      <div style="padding:10px 12px;border-bottom:1px solid var(--border)">
-        <input
-          type="text"
-          class="search-input"
-          id="session-search"
-          placeholder="Search sessions…"
-          oninput="filterSessions(this.value)"
-        />
+      <div class="panel-search">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+        <input type="text" class="search-input" id="session-search" placeholder="Search sessions…" oninput="filterSessions(this.value)" aria-label="Search sessions" />
       </div>
-
       <div class="panel-body scroll-section" id="session-list">
-        <div class="log-empty">
-          <div class="icon">📭</div>
-          <div>No sessions yet.<br>Start a chat to see sessions here.</div>
+        <div class="empty-state">
+          <div class="empty-icon">📭</div>
+          <div>No sessions yet.<br/>Start a chat to see sessions here.</div>
         </div>
       </div>
     </section>
 
-    <!-- ──────── MIDDLE: Reasoning Log Panel ──────── -->
+    <!-- ─── MIDDLE: Reasoning Log ─── -->
     <section class="panel log-panel" id="log-panel">
       <div class="panel-header">
         <div class="panel-title">
-          <span class="icon">🧠</span> Reasoning Log
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+          Reasoning Log
           <span class="panel-count" id="log-count">0</span>
         </div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <div class="live-toggle">
-            <div class="live-badge">LIVE</div>
+        <div class="panel-header-actions">
+          <div class="live-badge">
+            <div class="live-dot"></div>
+            LIVE
           </div>
-          <button class="clear-btn" onclick="clearLogs()">Clear</button>
+          <button class="clear-btn" onclick="clearLogs()" aria-label="Clear logs">Clear</button>
         </div>
       </div>
 
-      <!-- Filter Controls -->
       <div class="log-controls">
-        <span style="font-size:0.72rem;color:var(--text-muted)">Filter:</span>
-        <button class="log-filter-btn active" data-filter="all" onclick="setLogFilter('all')">All</button>
-        <button class="log-filter-btn" data-filter="info" onclick="setLogFilter('info')">ℹ️ Info</button>
-        <button class="log-filter-btn" data-filter="success" onclick="setLogFilter('success')">✅ Success</button>
-        <button class="log-filter-btn" data-filter="error" onclick="setLogFilter('error')">❌ Error</button>
-        <button class="log-filter-btn" data-filter="warning" onclick="setLogFilter('warning')">⚠️ Warning</button>
-        <label style="margin-left:auto;display:flex;align-items:center;gap:4px;font-size:0.72rem;color:var(--text-muted);cursor:pointer">
-          <input type="checkbox" checked id="auto-scroll-chk" onchange="autoScroll=this.checked" style="accent-color:var(--accent)" />
+        <span class="filter-label">Filter:</span>
+        <button class="log-filter-btn active" data-filter="all"     onclick="setLogFilter('all')">All</button>
+        <button class="log-filter-btn"         data-filter="info"    onclick="setLogFilter('info')">ℹ️ Info</button>
+        <button class="log-filter-btn"         data-filter="success" onclick="setLogFilter('success')">✅ Success</button>
+        <button class="log-filter-btn"         data-filter="error"   onclick="setLogFilter('error')">❌ Error</button>
+        <button class="log-filter-btn"         data-filter="warning" onclick="setLogFilter('warning')">⚠️ Warning</button>
+        <label class="auto-scroll-label">
+          <input type="checkbox" checked id="auto-scroll-chk" onchange="autoScroll=this.checked" aria-label="Auto-scroll logs" />
           Auto-scroll
         </label>
       </div>
 
       <div class="panel-body scroll-section" id="log-panel-body">
         <div class="log-stream" id="log-stream">
-          <div class="log-empty">
-            <div class="icon">🧠</div>
-            <div>Select a session from the left panel<br>to view reasoning logs here.</div>
+          <div class="empty-state">
+            <div class="empty-icon">🧠</div>
+            <div>Select a session from the left panel<br/>to view reasoning logs here.</div>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- ──────── RIGHT: Customer Detail Panel ──────── -->
+    <!-- ─── RIGHT: Customer / User Detail ─── -->
     <section class="panel detail-panel" id="detail-panel">
       <div class="panel-header">
         <div class="panel-title">
-          <span class="icon">👤</span> Customer Profile
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+          Customer Profile
         </div>
-        <button class="icon-action-btn" onclick="loadCustomerList()" title="Browse all customers">📋</button>
+        <div class="panel-header-actions">
+          <button class="icon-action-btn" onclick="openUserList()" title="Browse all users" aria-label="Browse users">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+          </button>
+        </div>
       </div>
-
       <div class="panel-body scroll-section" id="detail-content">
-        <div class="detail-empty">
-          <div class="icon">👤</div>
-          <div>Select a session to view<br>customer details here.</div>
+        <div class="empty-state">
+          <div class="empty-icon">👤</div>
+          <div>Select a session to view<br/>customer details here.</div>
         </div>
       </div>
     </section>
 
   </div><!-- end admin-body -->
 
-  <!-- Customer List Modal -->
-  <div id="customer-modal" style="
-    display:none;position:fixed;inset:0;z-index:1000;
-    background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);
-    align-items:center;justify-content:center;
-  ">
-    <div style="
-      background:var(--bg-card);border:1px solid var(--border);
-      border-radius:16px;padding:24px;max-width:600px;width:90%;
-      max-height:80vh;display:flex;flex-direction:column;gap:16px;
-      box-shadow:0 20px 60px rgba(0,0,0,0.5);
-    ">
-      <div style="display:flex;align-items:center;justify-content:space-between">
-        <h2 style="font-size:1rem;font-weight:600">All Customers (CRM)</h2>
-        <button onclick="closeCustomerModal()" style="
-          background:none;border:none;color:var(--text-muted);
-          cursor:pointer;font-size:1.2rem;
-        ">✕</button>
+  <!-- ══════════════════════════════════ USER LIST MODAL ══ -->
+  <div class="modal-overlay" id="user-list-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 class="modal-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+          All Users (CRM)
+        </h2>
+        <button class="modal-close" onclick="closeUserList()" aria-label="Close modal">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
       </div>
-      <input type="text" class="search-input" placeholder="Search by name or email…" oninput="filterCustomerList(this.value)" id="cust-search" />
-      <div id="customer-list-items" style="overflow-y:auto;display:flex;flex-direction:column;gap:6px;"></div>
+      <div class="modal-search">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+        <input type="text" class="search-input" id="user-list-search" placeholder="Search by name, email, or ID…" oninput="filterUserList(this.value)" aria-label="Search users" />
+      </div>
+      <div class="modal-body" id="user-list-items"></div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════ CREATE USER MODAL ══ -->
+  <div class="modal-overlay" id="create-user-modal">
+    <div class="modal-card" style="max-width:480px">
+      <div class="modal-header">
+        <h2 class="modal-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+          Create New User
+        </h2>
+        <button class="modal-close" onclick="closeCreateUserModal()" aria-label="Close">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </div>
+
+      <form class="modal-body" id="create-user-form" onsubmit="submitCreateUser(event)" style="gap:14px;display:flex;flex-direction:column">
+        <div class="cu-row">
+          <div class="cu-field">
+            <label class="cu-label" for="cu-email">Email Address *</label>
+            <input class="cu-input" id="cu-email" type="email" placeholder="user@example.com" required />
+          </div>
+        </div>
+        <div class="cu-row">
+          <div class="cu-field">
+            <label class="cu-label" for="cu-password">Password *</label>
+            <input class="cu-input" id="cu-password" type="password" placeholder="min. 6 characters" minlength="6" required />
+          </div>
+        </div>
+        <div class="cu-row cu-row-3">
+          <div class="cu-field">
+            <label class="cu-label" for="cu-age">Age</label>
+            <input class="cu-input" id="cu-age" type="number" placeholder="25" min="1" max="120" />
+          </div>
+          <div class="cu-field">
+            <label class="cu-label" for="cu-gender">Gender</label>
+            <select class="cu-input" id="cu-gender">
+              <option value="">Select…</option>
+              <option>Male</option>
+              <option>Female</option>
+              <option>Non-binary</option>
+              <option>Prefer not to say</option>
+            </select>
+          </div>
+          <div class="cu-field">
+            <label class="cu-label" for="cu-location">Location</label>
+            <input class="cu-input" id="cu-location" type="text" placeholder="Austin, TX" />
+          </div>
+        </div>
+
+        <div class="cu-note">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+          New users will have <strong>no orders</strong>. Refund requests from new users will be declined with "no order found."
+        </div>
+
+        <div class="cu-error" id="cu-error" style="display:none"></div>
+        <div class="cu-success" id="cu-success" style="display:none"></div>
+
+        <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:4px">
+          <button type="button" class="admin-action-btn" onclick="closeCreateUserModal()">Cancel</button>
+          <button type="submit" class="admin-action-btn purple" id="cu-submit-btn">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+            Create User
+          </button>
+        </div>
+      </form>
     </div>
   </div>
 
   <script src="/static/js/admin.js"></script>
-  <script>
-    // ─── Customer List Modal ────────────────────────────────
-    let allCustomers = [];
-
-    async function loadCustomerList() {
-      const modal = document.getElementById('customer-modal');
-      modal.style.display = 'flex';
-      if (allCustomers.length === 0) {
-        try {
-          const res = await fetch(`${API_BASE}/api/admin/customers`);
-          allCustomers = await res.json();
-        } catch (e) {
-          allCustomers = [];
-        }
-      }
-      renderCustomerList(allCustomers);
-    }
-
-    function closeCustomerModal() {
-      document.getElementById('customer-modal').style.display = 'none';
-    }
-
-    function filterCustomerList(q) {
-      const filtered = allCustomers.filter(c =>
-        c.name.toLowerCase().includes(q.toLowerCase()) ||
-        c.email.toLowerCase().includes(q.toLowerCase()) ||
-        c.customer_id.toLowerCase().includes(q.toLowerCase())
-      );
-      renderCustomerList(filtered);
-    }
-
-    function renderCustomerList(customers) {
-      const el = document.getElementById('customer-list-items');
-      const tierIcon = { bronze: '🥉', silver: '🥈', gold: '🥇', platinum: '💎' };
-      el.innerHTML = customers.map(c => `
-        <div style="
-          padding:10px 14px;background:var(--bg-panel);
-          border:1px solid var(--border);border-radius:8px;
-          cursor:pointer;transition:var(--transition);
-          display:flex;align-items:center;justify-content:space-between;
-        "
-        onclick="selectCustomerFromModal('${c.customer_id}')"
-        onmouseover="this.style.background='var(--bg-hover)'"
-        onmouseout="this.style.background='var(--bg-panel)'">
-          <div>
-            <div style="font-weight:600;font-size:0.85rem">${c.name}</div>
-            <div style="font-size:0.72rem;color:var(--text-muted)">${c.email}</div>
-          </div>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span class="tier-badge tier-${c.tier}">${tierIcon[c.tier] || '⭐'} ${c.tier}</span>
-            <span style="font-family:monospace;font-size:0.7rem;color:var(--accent)">${c.customer_id}</span>
-          </div>
-        </div>
-      `).join('') || '<div style="color:var(--text-muted);text-align:center;padding:20px">No customers found</div>';
-    }
-
-    function selectCustomerFromModal(customerId) {
-      closeCustomerModal();
-      loadCustomerDetail(customerId, null);
-    }
-
-    // Session search filter
-    function filterSessions(q) {
-      const items = document.querySelectorAll('.session-item');
-      items.forEach(item => {
-        const text = item.textContent.toLowerCase();
-        item.style.display = text.includes(q.toLowerCase()) ? '' : 'none';
-      });
-    }
-  </script>
 </body>
 </html>

@@ -76,6 +76,51 @@ def get_user(user_id: str) -> Optional[dict]:
     return _row_to_user(row) if row else None
 
 
+def list_users() -> list[dict]:
+    """Return all users (no password hashes)."""
+    conn = get_connection()
+    rows = conn.execute("SELECT * FROM users ORDER BY user_id").fetchall()
+    return [_row_to_user(r) for r in rows]
+
+
+def next_user_id() -> str:
+    """Generate the next sequential USR-XXX id."""
+    conn = get_connection()
+    row = conn.execute("SELECT user_id FROM users ORDER BY user_id DESC LIMIT 1").fetchone()
+    if not row:
+        return "USR-001"
+    last = row["user_id"]  # e.g. "USR-008"
+    try:
+        num = int(last.split("-")[1]) + 1
+    except (IndexError, ValueError):
+        num = 1
+    return f"USR-{num:03d}"
+
+
+def create_user(email: str, plain_password: str, age: int = None,
+                gender: str = None, location: str = None) -> Optional[dict]:
+    """
+    Create a new user. Returns the created user dict, or None if email already exists.
+    """
+    conn = get_connection()
+    # Check uniqueness
+    existing = conn.execute(
+        "SELECT user_id FROM users WHERE LOWER(email) = LOWER(?)", (email,)
+    ).fetchone()
+    if existing:
+        return None
+
+    user_id = next_user_id()
+    pw_hash = _hash_password(plain_password)
+    conn.execute(
+        """INSERT INTO users (user_id, email, password_hash, user_age, user_gender, user_location)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (user_id, email, pw_hash, age, gender, location),
+    )
+    conn.commit()
+    return get_user(user_id)
+
+
 def get_user_by_email(email: str) -> Optional[dict]:
     """Return user dict (no password) or None."""
     conn = get_connection()

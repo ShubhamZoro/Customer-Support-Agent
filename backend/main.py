@@ -13,6 +13,7 @@ from config import settings
 from api.chat import router as chat_router
 from api.voice import router as voice_router
 from api.admin import router as admin_router
+from api.auth  import router as auth_router
 
 # ─── App Setup ───────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -21,15 +22,24 @@ app = FastAPI(
     description="AI-powered e-commerce customer support agent with refund processing.",
 )
 
+ALLOWED_ORIGINS = [
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=r"http://localhost:\d+",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # ─── Routers ─────────────────────────────────────────────────────────────────
+app.include_router(auth_router)
 app.include_router(chat_router)
 app.include_router(voice_router)
 app.include_router(admin_router)
@@ -77,4 +87,6 @@ if __name__ == "__main__":
         port=8000,
         reload=True,
         log_level="info",
+        ws_ping_interval=20,
+        ws_ping_timeout=30,
     )
